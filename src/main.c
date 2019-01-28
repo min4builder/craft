@@ -1,12 +1,10 @@
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
-#include <curl/curl.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include "auth.h"
 #include "client.h"
 #include "config.h"
 #include "cube.h"
@@ -1808,29 +1806,6 @@ void add_message(const char *text) {
     g->message_index = (g->message_index + 1) % MAX_MESSAGES;
 }
 
-void login() {
-    char username[128] = {0};
-    char identity_token[128] = {0};
-    char access_token[128] = {0};
-    if (db_auth_get_selected(username, 128, identity_token, 128)) {
-        printf("Contacting login server for username: %s\n", username);
-        if (get_access_token(
-            access_token, 128, username, identity_token))
-        {
-            printf("Successfully authenticated with the login server\n");
-            client_login(username, access_token);
-        }
-        else {
-            printf("Failed to authenticate with the login server\n");
-            client_login("", "");
-        }
-    }
-    else {
-        printf("Logging in anonymously\n");
-        client_login("", "");
-    }
-}
-
 void copy() {
     memcpy(&g->copy0, &g->block0, sizeof(Block));
     memcpy(&g->copy1, &g->block1, sizeof(Block));
@@ -2025,24 +2000,7 @@ void parse_command(const char *buffer, int forward) {
     int server_port = DEFAULT_PORT;
     char filename[MAX_PATH_LENGTH];
     int radius, count, xc, yc, zc;
-    if (sscanf(buffer, "/identity %128s %128s", username, token) == 2) {
-        db_auth_set(username, token);
-        add_message("Successfully imported identity token!");
-        login();
-    }
-    else if (strcmp(buffer, "/logout") == 0) {
-        db_auth_select_none();
-        login();
-    }
-    else if (sscanf(buffer, "/login %128s", username) == 1) {
-        if (db_auth_select(username)) {
-            login();
-        }
-        else {
-            add_message("Unknown username.");
-        }
-    }
-    else if (sscanf(buffer,
+    if (sscanf(buffer,
         "/online %128s %d", server_addr, &server_port) >= 1)
     {
         g->mode_changed = 1;
@@ -2585,7 +2543,6 @@ void reset_model() {
 
 int main(int argc, char **argv) {
     // INITIALIZATION //
-    curl_global_init(CURL_GLOBAL_DEFAULT);
     srand(time(NULL));
     rand();
 
@@ -2747,7 +2704,6 @@ int main(int argc, char **argv) {
             client_connect(g->server_addr, g->server_port);
             client_start();
             client_version(1);
-            login();
         }
 
         // LOCAL VARIABLES //
@@ -2958,6 +2914,5 @@ int main(int argc, char **argv) {
     }
 
     glfwTerminate();
-    curl_global_cleanup();
     return 0;
 }

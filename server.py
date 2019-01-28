@@ -22,7 +22,7 @@ CHUNK_SIZE = 32
 BUFFER_SIZE = 4096
 COMMIT_INTERVAL = 5
 
-AUTH_REQUIRED = True
+AUTH_REQUIRED = False
 AUTH_URL = 'https://craft.michaelfogleman.com/api/1/access'
 
 DAY_LENGTH = 600
