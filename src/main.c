@@ -1726,6 +1726,9 @@ void render_sky(Attrib *attrib, Player *player, GLuint buffer) {
     glUniformMatrix4fv(attrib->matrix, 1, GL_FALSE, matrix);
     glUniform1i(attrib->sampler, 2);
     glUniform1f(attrib->timer, time_of_day());
+    glUniform3f(attrib->extra1, (float) player->state.x / g->render_radius,
+                                (float) player->state.y / g->render_radius,
+                                (float) player->state.z / g->render_radius);
     draw_triangles_3d(attrib, buffer, 512 * 3);
 }
 
@@ -2452,18 +2455,26 @@ void parse_buffer(char *buffer) {
             if (player_intersects_block(2, s->x, s->y, s->z, bx, by, bz)) {
                 s->y = highest_block(s->x, s->z) + 2;
             }
+            Chunk *chunk = find_chunk(bp, bq);
+            if (chunk) {
+                dirty_chunk(chunk);
+            }
         }
         if (sscanf(line, "L,%d,%d,%d,%d,%d,%d",
             &bp, &bq, &bx, &by, &bz, &bw) == 6)
         {
             set_light(bp, bq, bx, by, bz, bw);
+            Chunk *chunk = find_chunk(bp, bq);
+            if (chunk) {
+                dirty_chunk(chunk);
+            }
         }
         float px, py, pz, prx, pry;
         if (sscanf(line, "P,%d,%f,%f,%f,%f,%f",
             &pid, &px, &py, &pz, &prx, &pry) == 6)
         {
             Player *player = find_player(pid);
-            if (!player && g->player_count < MAX_PLAYERS) {
+            if (!player && pid != me->id && g->player_count < MAX_PLAYERS) {
                 player = g->players + g->player_count;
                 g->player_count++;
                 player->id = pid;
@@ -2654,6 +2665,7 @@ int main(int argc, char **argv) {
     sky_attrib.matrix = glGetUniformLocation(program, "matrix");
     sky_attrib.sampler = glGetUniformLocation(program, "sampler");
     sky_attrib.timer = glGetUniformLocation(program, "timer");
+    sky_attrib.extra1 = glGetUniformLocation(program, "player_position");
 
     // CHECK COMMAND LINE ARGUMENTS //
     if (argc == 2 || argc == 3) {

@@ -4,13 +4,13 @@
 // app parameters
 #define DEBUG 1
 #define FULLSCREEN 0
-#define WINDOW_WIDTH 1024
-#define WINDOW_HEIGHT 768
+#define WINDOW_WIDTH 800
+#define WINDOW_HEIGHT 600
 #define VSYNC 1
 #define SCROLL_THRESHOLD 0.1
 #define MAX_MESSAGES 4
 #define DB_PATH "craft.db"
-#define USE_CACHE 1
+#define USE_CACHE 0
 #define DAY_LENGTH 600
 #define INVERT_MOUSE 0
 

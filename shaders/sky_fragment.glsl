@@ -4,7 +4,10 @@ uniform sampler2D sampler;
 uniform float timer;
 
 varying vec2 fragment_uv;
-varying vec2 sky_position;
+varying vec3 sky_position;
+varying vec3 sky_offset;
+
+const float PI = 3.141592653;
 
 vec2 rand2(vec2 p) {
     p = vec2(dot(p, vec2(127.1, 311.7)),
@@ -40,6 +43,13 @@ float cloudify(float n) {
 
 void main() {
     vec2 uv = vec2(timer, fragment_uv.t);
-    float n = cloudify(fbm(sky_position * 2.0));
+    float n = 0.0;
+    if(sky_position.y > 0.0) {
+        float olen = length(sky_position.xz);
+        float dist = tan(PI * 0.5 - asin(sky_position.y));
+        vec2 pos = sky_offset.xz * 0.125 + vec2(dist * sky_position.x / olen, dist * sky_position.z / olen);
+        n = cloudify(fbm(pos + timer * 10.0));
+    }
     gl_FragColor = n + texture2D(sampler, uv);
 }
+
