@@ -22,8 +22,8 @@ static int running = 0;
 static int sd = 0;
 static int bytes_sent = 0;
 static int bytes_received = 0;
-static char *queue = 0;
-static int qsize = 0;
+static char buf[RECV_SIZE] = { 0 };
+static int bsize = 0;
 static thrd_t recv_thread;
 static mtx_t mutex;
 
@@ -152,25 +152,19 @@ void client_talk(const char *text) {
     client_send(buffer);
 }
 
-char *client_recv() {
+char *client_recv(size_t *size) {
     if (!client_enabled) {
         return 0;
     }
     char *result = 0;
     mtx_lock(&mutex);
-    char *p = queue + qsize - 1;
-    while (p >= queue && *p != '\n') {
-        p--;
-    }
-    if (p >= queue) {
-        int length = p - queue + 1;
-        result = malloc(sizeof(char) * (length + 1));
-        memcpy(result, queue, sizeof(char) * length);
-        result[length] = '\0';
-        int remaining = qsize - length;
-        memmove(queue, p + 1, remaining);
-        qsize -= length;
-        bytes_received += length;
+    if (bsize > 0) {
+        result = malloc(bsize + 1);
+        memcpy(result, buf, bsize);
+        result[bsize] = '\0';
+        *size = bsize;
+        bsize = 0;
+        bytes_received += bsize;
     }
     mtx_unlock(&mutex);
     return result;
@@ -178,9 +172,9 @@ char *client_recv() {
 
 int recv_worker(void *arg) {
     char *data = malloc(sizeof(char) * RECV_SIZE);
+    int size;
     while (1) {
-        int length;
-        if ((length = recv(sd, data, RECV_SIZE - 1, 0)) <= 0) {
+        if (recv(sd, &size, 4, 0) <= 0) {
             if (running) {
                 perror("recv");
                 exit(1);
@@ -189,13 +183,26 @@ int recv_worker(void *arg) {
                 break;
             }
         }
-        data[length] = '\0';
+        size = ntohl(size);
+        int t = 0;
+        while (t < size) {
+            int len = 0;
+            if ((len = recv(sd, data+t, size-t, 0)) <= 0) {
+                if (running) {
+                    perror("recv");
+                    exit(1);
+                } else {
+                    break;
+                }
+            }
+            t += len;
+        }
         while (1) {
             int done = 0;
             mtx_lock(&mutex);
-            if (qsize + length < QUEUE_SIZE) {
-                memcpy(queue + qsize, data, sizeof(char) * (length + 1));
-                qsize += length;
+            if (bsize == 0) {
+                memcpy(buf, data, size + 1);
+                bsize = size;
                 done = 1;
             }
             mtx_unlock(&mutex);
@@ -238,8 +245,7 @@ void client_start() {
         return;
     }
     running = 1;
-    queue = (char *)calloc(QUEUE_SIZE, sizeof(char));
-    qsize = 0;
+    bsize = 0;
     mtx_init(&mutex, mtx_plain);
     if (thrd_create(&recv_thread, recv_worker, NULL) != thrd_success) {
         perror("thrd_create");
@@ -258,8 +264,7 @@ void client_stop() {
     //     exit(1);
     // }
     // mtx_destroy(&mutex);
-    qsize = 0;
-    free(queue);
+    bsize = 0;
     // printf("Bytes Sent: %d, Bytes Received: %d\n",
     //     bytes_sent, bytes_received);
 }

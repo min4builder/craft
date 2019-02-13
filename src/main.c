@@ -1532,14 +1532,12 @@ void set_light(int p, int q, int x, int y, int z, int w) {
     }
 }
 
-void _set_block(int p, int q, int x, int y, int z, int w, int dirty) {
+void _set_block(int p, int q, int x, int y, int z, int w) {
     Chunk *chunk = find_chunk(p, q);
     if (chunk) {
         Map *map = &chunk->map;
         if (map_set(map, x, y, z, w)) {
-            if (dirty) {
-                dirty_chunk(chunk);
-            }
+            dirty_chunk(chunk);
             db_insert_block(p, q, x, y, z, w);
         }
     }
@@ -1552,10 +1550,8 @@ void _set_block(int p, int q, int x, int y, int z, int w, int dirty) {
     }
 }
 
-void set_block(int x, int y, int z, int w) {
-    int p = chunked(x);
-    int q = chunked(z);
-    _set_block(p, q, x, y, z, w, 1);
+void set_block(int p, int q, int x, int y, int z, int w) {
+    _set_block(p, q, x, y, z, w);
     for (int dx = -1; dx <= 1; dx++) {
         for (int dz = -1; dz <= 1; dz++) {
             if (dx == 0 && dz == 0) {
@@ -1567,9 +1563,15 @@ void set_block(int x, int y, int z, int w) {
             if (dz && chunked(z + dz) == q) {
                 continue;
             }
-            _set_block(p + dx, q + dz, x, y, z, -w, 1);
+            _set_block(p + dx, q + dz, x, y, z, -w);
         }
     }
+}
+
+void put_block(int x, int y, int z, int w) {
+    int p = chunked(x);
+    int q = chunked(z);
+    set_block(p, q, x, y, z, w);
     client_block(x, y, z, w);
 }
 
@@ -1597,10 +1599,10 @@ void builder_block(int x, int y, int z, int w) {
         return;
     }
     if (is_destructable(get_block(x, y, z))) {
-        set_block(x, y, z, 0);
+        put_block(x, y, z, 0);
     }
     if (w) {
-        set_block(x, y, z, w);
+        put_block(x, y, z, w);
     }
 }
 
@@ -2103,10 +2105,10 @@ void on_left_click() {
     int hx, hy, hz;
     int hw = hit_test(0, s->x, s->y, s->z, s->rx, s->ry, &hx, &hy, &hz);
     if (hy > 0 && hy < 256 && is_destructable(hw)) {
-        set_block(hx, hy, hz, 0);
+        put_block(hx, hy, hz, 0);
         record_block(hx, hy, hz, 0);
         if (is_plant(get_block(hx, hy + 1, hz))) {
-            set_block(hx, hy + 1, hz, 0);
+            put_block(hx, hy + 1, hz, 0);
         }
     }
 }
@@ -2117,7 +2119,7 @@ void on_right_click() {
     int hw = hit_test(1, s->x, s->y, s->z, s->rx, s->ry, &hx, &hy, &hz);
     if (hy > 0 && hy < 256 && is_obstacle(hw)) {
         if (!player_intersects_block(2, s->x, s->y, s->z, hx, hy, hz)) {
-            set_block(hx, hy, hz, items[g->item_index]);
+            put_block(hx, hy, hz, items[g->item_index]);
             record_block(hx, hy, hz, items[g->item_index]);
         }
     }
@@ -2429,108 +2431,103 @@ void handle_movement(double dt) {
     }
 }
 
-void parse_buffer(char *buffer) {
+void parse_buffer(char *buffer, size_t bsize) {
     Player *me = g->players;
     State *s = &g->players->state;
-    char *key;
-    char *line = tokenize(buffer, "\n", &key);
-    while (line) {
-        int pid;
-        float ux, uy, uz, urx, ury;
-        if (sscanf(line, "U,%d,%f,%f,%f,%f,%f",
-            &pid, &ux, &uy, &uz, &urx, &ury) == 6)
-        {
-            me->id = pid;
-            s->x = ux; s->y = uy; s->z = uz; s->rx = urx; s->ry = ury;
-            force_chunks(me);
-            if (uy == 0) {
-                s->y = highest_block(s->x, s->z) + 2;
-            }
+    int pid;
+    float ux, uy, uz, urx, ury;
+    if (sscanf(buffer, "U,%d,%f,%f,%f,%f,%f",
+        &pid, &ux, &uy, &uz, &urx, &ury) == 6)
+    {
+        me->id = pid;
+        s->x = ux; s->y = uy; s->z = uz; s->rx = urx; s->ry = ury;
+        force_chunks(me);
+        if (uy == 0) {
+            s->y = highest_block(s->x, s->z) + 2;
         }
-        int bp, bq, bx, by, bz, bw;
-        if (sscanf(line, "B,%d,%d,%d,%d,%d,%d",
-            &bp, &bq, &bx, &by, &bz, &bw) == 6)
-        {
-            _set_block(bp, bq, bx, by, bz, bw, 0);
-            if (player_intersects_block(2, s->x, s->y, s->z, bx, by, bz)) {
-                s->y = highest_block(s->x, s->z) + 2;
-            }
-            Chunk *chunk = find_chunk(bp, bq);
-            if (chunk) {
-                dirty_chunk(chunk);
-            }
+    }
+    int bp, bq, bx, by, bz, bw;
+    if (sscanf(buffer, "B,%d,%d,%d,%d,%d,%d",
+        &bp, &bq, &bx, &by, &bz, &bw) == 6)
+    {
+        set_block(bp, bq, bx, by, bz, bw);
+        if (player_intersects_block(2, s->x, s->y, s->z, bx, by, bz)) {
+            s->y = highest_block(s->x, s->z) + 2;
         }
-        if (sscanf(line, "L,%d,%d,%d,%d,%d,%d",
-            &bp, &bq, &bx, &by, &bz, &bw) == 6)
-        {
-            set_light(bp, bq, bx, by, bz, bw);
-            Chunk *chunk = find_chunk(bp, bq);
-            if (chunk) {
-                dirty_chunk(chunk);
-            }
+        Chunk *chunk = find_chunk(bp, bq);
+        if (chunk) {
+            dirty_chunk(chunk);
         }
-        float px, py, pz, prx, pry;
-        if (sscanf(line, "P,%d,%f,%f,%f,%f,%f",
-            &pid, &px, &py, &pz, &prx, &pry) == 6)
-        {
-            Player *player = find_player(pid);
-            if (!player && pid != me->id && g->player_count < MAX_PLAYERS) {
-                player = g->players + g->player_count;
-                g->player_count++;
-                player->id = pid;
-                player->buffer = 0;
-                snprintf(player->name, MAX_NAME_LENGTH, "player%d", pid);
-                update_player(player, px, py, pz, prx, pry, 1); // twice
-            }
-            if (player) {
-                update_player(player, px, py, pz, prx, pry, 1);
-            }
+    }
+    if (sscanf(buffer, "L,%d,%d,%d,%d,%d,%d",
+        &bp, &bq, &bx, &by, &bz, &bw) == 6)
+    {
+        set_light(bp, bq, bx, by, bz, bw);
+        Chunk *chunk = find_chunk(bp, bq);
+        if (chunk) {
+            dirty_chunk(chunk);
         }
-        if (sscanf(line, "D,%d", &pid) == 1) {
-            delete_player(pid);
+    }
+    float px, py, pz, prx, pry;
+    if (sscanf(buffer, "P,%d,%f,%f,%f,%f,%f",
+        &pid, &px, &py, &pz, &prx, &pry) == 6)
+    {
+        Player *player = find_player(pid);
+        if (!player && pid != me->id && g->player_count < MAX_PLAYERS) {
+            player = g->players + g->player_count;
+            g->player_count++;
+            player->id = pid;
+            player->buffer = 0;
+            snprintf(player->name, MAX_NAME_LENGTH, "player%d", pid);
+            update_player(player, px, py, pz, prx, pry, 1); // twice
         }
-        int kp, kq, kk;
-        if (sscanf(line, "K,%d,%d,%d", &kp, &kq, &kk) == 3) {
-            db_set_key(kp, kq, kk);
+        if (player) {
+            update_player(player, px, py, pz, prx, pry, 1);
         }
-        if (sscanf(line, "R,%d,%d", &kp, &kq) == 2) {
-            Chunk *chunk = find_chunk(kp, kq);
-            if (chunk) {
-                dirty_chunk(chunk);
-            }
+    }
+    if (sscanf(buffer, "D,%d", &pid) == 1) {
+        delete_player(pid);
+    }
+    int kp, kq, kk;
+    if (sscanf(buffer, "K,%d,%d,%d", &kp, &kq, &kk) == 3) {
+        db_set_key(kp, kq, kk);
+    }
+    if (sscanf(buffer, "R,%d,%d", &kp, &kq) == 2) {
+        Chunk *chunk = find_chunk(kp, kq);
+        if (chunk) {
+            dirty_chunk(chunk);
         }
-        double elapsed;
-        int day_length;
-        if (sscanf(line, "E,%lf,%d", &elapsed, &day_length) == 2) {
-            glfwSetTime(fmod(elapsed, day_length));
-            g->day_length = day_length;
-            g->time_changed = 1;
+    }
+    double elapsed;
+    int day_length;
+    if (sscanf(buffer, "E,%lf,%d", &elapsed, &day_length) == 2) {
+        glfwSetTime(fmod(elapsed, day_length));
+        g->day_length = day_length;
+        g->time_changed = 1;
+    }
+    if (buffer[0] == 'T' && buffer[1] == ',') {
+        char *text = buffer + 2;
+        add_message(text);
+    }
+    char format[64];
+    snprintf(
+        format, sizeof(format), "N,%%d,%%%ds", MAX_NAME_LENGTH - 1);
+    char name[MAX_NAME_LENGTH];
+    if (sscanf(buffer, format, &pid, name) == 2) {
+        Player *player = find_player(pid);
+        if (player) {
+            strncpy(player->name, name, MAX_NAME_LENGTH);
         }
-        if (line[0] == 'T' && line[1] == ',') {
-            char *text = line + 2;
-            add_message(text);
-        }
-        char format[64];
-        snprintf(
-            format, sizeof(format), "N,%%d,%%%ds", MAX_NAME_LENGTH - 1);
-        char name[MAX_NAME_LENGTH];
-        if (sscanf(line, format, &pid, name) == 2) {
-            Player *player = find_player(pid);
-            if (player) {
-                strncpy(player->name, name, MAX_NAME_LENGTH);
-            }
-        }
-        snprintf(
-            format, sizeof(format),
-            "S,%%d,%%d,%%d,%%d,%%d,%%d,%%%d[^\n]", MAX_SIGN_LENGTH - 1);
-        int face;
-        char text[MAX_SIGN_LENGTH] = {0};
-        if (sscanf(line, format,
-            &bp, &bq, &bx, &by, &bz, &face, text) >= 6)
-        {
-            _set_sign(bp, bq, bx, by, bz, face, text, 0);
-        }
-        line = tokenize(NULL, "\n", &key);
+    }
+    snprintf(
+        format, sizeof(format),
+        "S,%%d,%%d,%%d,%%d,%%d,%%d,%%%d[^\n]", MAX_SIGN_LENGTH - 1);
+    int face;
+    char text[MAX_SIGN_LENGTH] = {0};
+    if (sscanf(buffer, format,
+        &bp, &bq, &bx, &by, &bz, &face, text) >= 6)
+    {
+        _set_sign(bp, bq, bx, by, bz, face, text, 0);
     }
 }
 
@@ -2715,7 +2712,7 @@ int main(int argc, char **argv) {
             client_enable();
             client_connect(g->server_addr, g->server_port);
             client_start();
-            client_version(1);
+            client_version(2);
         }
 
         // LOCAL VARIABLES //
@@ -2768,9 +2765,10 @@ int main(int argc, char **argv) {
             handle_movement(dt);
 
             // HANDLE DATA FROM SERVER //
-            char *buffer = client_recv();
+            size_t bsize;
+            char *buffer = client_recv(&bsize);
             if (buffer) {
-                parse_buffer(buffer);
+                parse_buffer(buffer, bsize);
                 free(buffer);
             }
 
