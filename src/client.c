@@ -60,7 +60,13 @@ void client_send(char *data) {
     if (!client_enabled) {
         return;
     }
-    if (client_sendall(sd, data, strlen(data)) == -1) {
+    int size = strlen(data);
+    uint32_t len = htonl(size);
+    if (client_sendall(sd, (char *) &len, 4) == -1) {
+        perror("client_sendall");
+        exit(1);
+    }
+    if (client_sendall(sd, data, size) == -1) {
         perror("client_sendall");
         exit(1);
     }
@@ -71,7 +77,7 @@ void client_version(int version) {
         return;
     }
     char buffer[1024];
-    snprintf(buffer, 1024, "V,%d\n", version);
+    snprintf(buffer, 1024, "V,%d", version);
     client_send(buffer);
 }
 
@@ -80,7 +86,7 @@ void client_login(const char *username, const char *identity_token) {
         return;
     }
     char buffer[1024];
-    snprintf(buffer, 1024, "A,%s,%s\n", username, identity_token);
+    snprintf(buffer, 1024, "A,%s,%s", username, identity_token);
     client_send(buffer);
 }
 
@@ -100,7 +106,7 @@ void client_position(float x, float y, float z, float rx, float ry) {
     }
     px = x; py = y; pz = z; prx = rx; pry = ry;
     char buffer[1024];
-    snprintf(buffer, 1024, "P,%.2f,%.2f,%.2f,%.2f,%.2f\n", x, y, z, rx, ry);
+    snprintf(buffer, 1024, "P,%.2f,%.2f,%.2f,%.2f,%.2f", x, y, z, rx, ry);
     client_send(buffer);
 }
 
@@ -109,7 +115,7 @@ void client_chunk(int p, int q, int key) {
         return;
     }
     char buffer[1024];
-    snprintf(buffer, 1024, "C,%d,%d,%d\n", p, q, key);
+    snprintf(buffer, 1024, "C,%d,%d,%d", p, q, key);
     client_send(buffer);
 }
 
@@ -118,7 +124,7 @@ void client_block(int x, int y, int z, int w) {
         return;
     }
     char buffer[1024];
-    snprintf(buffer, 1024, "B,%d,%d,%d,%d\n", x, y, z, w);
+    snprintf(buffer, 1024, "B,%d,%d,%d,%d", x, y, z, w);
     client_send(buffer);
 }
 
@@ -127,7 +133,7 @@ void client_light(int x, int y, int z, int w) {
         return;
     }
     char buffer[1024];
-    snprintf(buffer, 1024, "L,%d,%d,%d,%d\n", x, y, z, w);
+    snprintf(buffer, 1024, "L,%d,%d,%d,%d", x, y, z, w);
     client_send(buffer);
 }
 
@@ -136,7 +142,7 @@ void client_sign(int x, int y, int z, int face, const char *text) {
         return;
     }
     char buffer[1024];
-    snprintf(buffer, 1024, "S,%d,%d,%d,%d,%s\n", x, y, z, face, text);
+    snprintf(buffer, 1024, "S,%d,%d,%d,%d,%s", x, y, z, face, text);
     client_send(buffer);
 }
 
@@ -148,7 +154,7 @@ void client_talk(const char *text) {
         return;
     }
     char buffer[1024];
-    snprintf(buffer, 1024, "T,%s\n", text);
+    snprintf(buffer, 1024, "T,%s", text);
     client_send(buffer);
 }
 
@@ -172,7 +178,7 @@ char *client_recv(size_t *size) {
 
 int recv_worker(void *arg) {
     char *data = malloc(sizeof(char) * RECV_SIZE);
-    int size;
+    uint32_t size;
     while (1) {
         if (recv(sd, &size, 4, 0) <= 0) {
             if (running) {
