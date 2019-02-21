@@ -15,7 +15,10 @@
 #include "tinycthread.h"
 
 #define QUEUE_SIZE 1048576
-#define RECV_SIZE 4096
+#define RECV_SIZE (2*32*32*256)
+
+#define STR_(x) #x
+#define STR(x) STR_(x)
 
 static int client_enabled = 0;
 static int running = 0;
@@ -182,7 +185,7 @@ int recv_worker(void *arg) {
     while (1) {
         if (recv(sd, &size, 4, 0) <= 0) {
             if (running) {
-                perror("recv");
+                perror("recv at " __FILE__ ":" STR(__LINE__));
                 exit(1);
             }
             else {
@@ -190,12 +193,16 @@ int recv_worker(void *arg) {
             }
         }
         size = ntohl(size);
+        if (size > RECV_SIZE) {
+            fprintf(stderr, "Response too big\n");
+            exit(1);
+        }
         int t = 0;
         while (t < size) {
             int len = 0;
             if ((len = recv(sd, data+t, size-t, 0)) <= 0) {
                 if (running) {
-                    perror("recv");
+                    perror("recv at " __FILE__ ":" STR(__LINE__));
                     exit(1);
                 } else {
                     break;

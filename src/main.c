@@ -1,5 +1,6 @@
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
+#include <arpa/inet.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,11 +13,11 @@
 #include "item.h"
 #include "map.h"
 #include "matrix.h"
+#include "miniz.h"
 #include "noise.h"
 #include "sign.h"
 #include "tinycthread.h"
 #include "util.h"
-#include "world.h"
 
 #define MAX_CHUNKS 8192
 #define MAX_PLAYERS 128
@@ -1176,7 +1177,6 @@ void load_chunk(WorkerItem *item) {
     int q = item->q;
     Map *block_map = item->block_maps[1][1];
     Map *light_map = item->light_maps[1][1];
-    create_world(p, q, map_set_func, block_map);
     db_load_blocks(block_map, p, q);
     db_load_lights(light_map, p, q);
 }
@@ -2436,7 +2436,34 @@ void parse_buffer(char *buffer, size_t bsize) {
     State *s = &g->players->state;
     int pid;
     float ux, uy, uz, urx, ury;
-    if (sscanf(buffer, "U,%d,%f,%f,%f,%f,%f",
+    int bp, bq, bx, by, bz, bw;
+    float px, py, pz, prx, pry;
+    int kp, kq, kk;
+    double elapsed;
+    int day_length;
+    if (buffer[0] == 'C') {
+#define B64R(x) (((int64_t)(x)[0] << 56) | ((int64_t)(x)[1] << 48) | ((int64_t)(x)[2] << 40) | ((int64_t)(x)[3] << 32) | ((int64_t)(x)[4] << 24) | ((int64_t)(x)[5] << 16) | ((int64_t)(x)[6] << 8) | ((int64_t)(x)[7] << 0))
+        int64_t p = B64R(buffer+1);
+        int64_t q = B64R(buffer+9);
+#undef B64R
+        buffer += 17;
+        bsize -= 17;
+        printf("C,%ld,%ld\n", p, q);
+        static char chunkbuf[32*32*256];
+        size_t len = tinfl_decompress_mem_to_mem(chunkbuf, sizeof(chunkbuf), buffer, bsize, 0);
+        for (int x = 0; x < 32; x++) {
+            for (int y = 0; y < 256; y++) {
+                for (int z = 0; z < 32; z++) {
+                    int w = chunkbuf[y*32*32 + z*32 + x];
+                    if(w)
+                        set_block(p, q, x + p*32, y, z + q*32, w);
+                    if (player_intersects_block(2, s->x, s->y, s->z, x + p*32, y, z + q*32)) {
+                        s->y = highest_block(s->x, s->z) + 2;
+                    }
+                }
+            }
+        }
+    } else if (sscanf(buffer, "U,%d,%f,%f,%f,%f,%f",
         &pid, &ux, &uy, &uz, &urx, &ury) == 6)
     {
         me->id = pid;
@@ -2445,9 +2472,7 @@ void parse_buffer(char *buffer, size_t bsize) {
         if (uy == 0) {
             s->y = highest_block(s->x, s->z) + 2;
         }
-    }
-    int bp, bq, bx, by, bz, bw;
-    if (sscanf(buffer, "B,%d,%d,%d,%d,%d,%d",
+    } else if (sscanf(buffer, "B,%d,%d,%d,%d,%d,%d",
         &bp, &bq, &bx, &by, &bz, &bw) == 6)
     {
         set_block(bp, bq, bx, by, bz, bw);
@@ -2458,8 +2483,7 @@ void parse_buffer(char *buffer, size_t bsize) {
         if (chunk) {
             dirty_chunk(chunk);
         }
-    }
-    if (sscanf(buffer, "L,%d,%d,%d,%d,%d,%d",
+    } else if (sscanf(buffer, "L,%d,%d,%d,%d,%d,%d",
         &bp, &bq, &bx, &by, &bz, &bw) == 6)
     {
         set_light(bp, bq, bx, by, bz, bw);
@@ -2467,9 +2491,7 @@ void parse_buffer(char *buffer, size_t bsize) {
         if (chunk) {
             dirty_chunk(chunk);
         }
-    }
-    float px, py, pz, prx, pry;
-    if (sscanf(buffer, "P,%d,%f,%f,%f,%f,%f",
+    } else if (sscanf(buffer, "P,%d,%f,%f,%f,%f,%f",
         &pid, &px, &py, &pz, &prx, &pry) == 6)
     {
         Player *player = find_player(pid);
@@ -2484,28 +2506,20 @@ void parse_buffer(char *buffer, size_t bsize) {
         if (player) {
             update_player(player, px, py, pz, prx, pry, 1);
         }
-    }
-    if (sscanf(buffer, "D,%d", &pid) == 1) {
+    } else if (sscanf(buffer, "D,%d", &pid) == 1) {
         delete_player(pid);
-    }
-    int kp, kq, kk;
-    if (sscanf(buffer, "K,%d,%d,%d", &kp, &kq, &kk) == 3) {
+    } else if (sscanf(buffer, "K,%d,%d,%d", &kp, &kq, &kk) == 3) {
         db_set_key(kp, kq, kk);
-    }
-    if (sscanf(buffer, "R,%d,%d", &kp, &kq) == 2) {
+    } else if (sscanf(buffer, "R,%d,%d", &kp, &kq) == 2) {
         Chunk *chunk = find_chunk(kp, kq);
         if (chunk) {
             dirty_chunk(chunk);
         }
-    }
-    double elapsed;
-    int day_length;
-    if (sscanf(buffer, "E,%lf,%d", &elapsed, &day_length) == 2) {
+    } else if (sscanf(buffer, "E,%lf,%d", &elapsed, &day_length) == 2) {
         glfwSetTime(fmod(elapsed, day_length));
         g->day_length = day_length;
         g->time_changed = 1;
-    }
-    if (buffer[0] == 'T' && buffer[1] == ',') {
+    } else if (buffer[0] == 'T' && buffer[1] == ',') {
         char *text = buffer + 2;
         add_message(text);
     }
@@ -2566,7 +2580,7 @@ int main(int argc, char **argv) {
 
     glfwMakeContextCurrent(g->window);
     glfwSwapInterval(VSYNC);
-    glfwSetInputMode(g->window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+//    glfwSetInputMode(g->window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
     glfwSetKeyCallback(g->window, on_key);
     glfwSetCharCallback(g->window, on_char);
     glfwSetMouseButtonCallback(g->window, on_mouse_button);
