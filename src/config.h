@@ -9,8 +9,6 @@
 #define VSYNC 1
 #define SCROLL_THRESHOLD 0.1
 #define MAX_MESSAGES 4
-#define DB_PATH "craft.db"
-#define USE_CACHE 0
 #define DAY_LENGTH 600
 #define INVERT_MOUSE 0
 
@@ -38,12 +36,10 @@
 #define CRAFT_KEY_ORTHO 'F'
 #define CRAFT_KEY_CHAT 't'
 #define CRAFT_KEY_COMMAND '/'
-#define CRAFT_KEY_SIGN '`'
 
 // advanced parameters
 #define CREATE_CHUNK_RADIUS 10
 #define RENDER_CHUNK_RADIUS 10
-#define RENDER_SIGN_RADIUS 4
 #define DELETE_CHUNK_RADIUS 14
 #define CHUNK_SIZE 32
 #define COMMIT_INTERVAL 5

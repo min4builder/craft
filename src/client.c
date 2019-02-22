@@ -113,12 +113,12 @@ void client_position(float x, float y, float z, float rx, float ry) {
     client_send(buffer);
 }
 
-void client_chunk(int p, int q, int key) {
+void client_chunk(int p, int q, int r) {
     if (!client_enabled) {
         return;
     }
     char buffer[1024];
-    snprintf(buffer, 1024, "C,%d,%d,%d", p, q, key);
+    snprintf(buffer, 1024, "C,%d,%d,%d", p, q, r);
     client_send(buffer);
 }
 
@@ -137,15 +137,6 @@ void client_light(int x, int y, int z, int w) {
     }
     char buffer[1024];
     snprintf(buffer, 1024, "L,%d,%d,%d,%d", x, y, z, w);
-    client_send(buffer);
-}
-
-void client_sign(int x, int y, int z, int face, const char *text) {
-    if (!client_enabled) {
-        return;
-    }
-    char buffer[1024];
-    snprintf(buffer, 1024, "S,%d,%d,%d,%d,%s", x, y, z, face, text);
     client_send(buffer);
 }
 
