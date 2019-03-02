@@ -1,0 +1,12 @@
+#!/bin/sh
+
+exec 3> deps.mk 4> objects.mk
+cd src/
+echo -n "OBJECT_FILES =" >&4
+for f in *.c; do
+    echo "build/${f%.c}.o: src/$f src/*.h" >&3
+    echo "	@\$(MK_BUILD_DIR)" >&3
+    echo "	\$(CC) \$(CFLAGS) -o \$@ -c src/$f" >&3
+    echo -n " build/${f%.c}.o" >&4
+done
+

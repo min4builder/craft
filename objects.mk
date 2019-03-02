@@ -1,0 +1,1 @@
+OBJECT_FILES = build/client.o build/cube.o build/item.o build/lodepng.o build/main.o build/map.o build/matrix.o build/miniz.o build/tinycthread.o build/util.o
