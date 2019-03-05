@@ -15,7 +15,7 @@
 #include "tinycthread.h"
 
 #define QUEUE_SIZE 1048576
-#define RECV_SIZE (2*32*32*256)
+#define RECV_SIZE (2*32*32*32)
 
 #define STR_(x) #x
 #define STR(x) STR_(x)
@@ -25,8 +25,8 @@ static int running = 0;
 static int sd = 0;
 static int bytes_sent = 0;
 static int bytes_received = 0;
-static char buf[RECV_SIZE] = { 0 };
-static int bsize = 0;
+static char buf[QUEUE_SIZE] = { 0 };
+static int bpos = 0;
 static thrd_t recv_thread;
 static mtx_t mutex;
 
@@ -158,20 +158,19 @@ char *client_recv(size_t *size) {
     }
     char *result = 0;
     mtx_lock(&mutex);
-    if (bsize > 0) {
-        result = malloc(bsize + 1);
-        memcpy(result, buf, bsize);
-        result[bsize] = '\0';
-        *size = bsize;
-        bsize = 0;
-        bytes_received += bsize;
+    if (bpos > 0) {
+        result = malloc(bpos);
+        memcpy(result, buf, bpos);
+        bytes_received += bpos;
+        *size = bpos;
+        bpos = 0;
     }
     mtx_unlock(&mutex);
     return result;
 }
 
 int recv_worker(void *arg) {
-    char *data = malloc(sizeof(char) * RECV_SIZE);
+    char *data = malloc(RECV_SIZE + 1);
     uint32_t size;
     while (1) {
         if (recv(sd, &size, 4, 0) <= 0) {
@@ -185,7 +184,7 @@ int recv_worker(void *arg) {
         }
         size = ntohl(size);
         if (size > RECV_SIZE) {
-            fprintf(stderr, "Response too big\n");
+            fprintf(stderr, "Message too big\n");
             exit(1);
         }
         int t = 0;
@@ -201,12 +200,14 @@ int recv_worker(void *arg) {
             }
             t += len;
         }
+        data[size++] = '\0';
         while (1) {
             int done = 0;
             mtx_lock(&mutex);
-            if (bsize == 0) {
-                memcpy(buf, data, size + 1);
-                bsize = size;
+            if (bpos + size + sizeof(size_t) < QUEUE_SIZE) {
+                *(size_t *)&buf[bpos] = size;
+                memcpy(buf + bpos + sizeof(size_t), data, size);
+                bpos += size + sizeof(size_t);
                 done = 1;
             }
             mtx_unlock(&mutex);
@@ -249,7 +250,7 @@ void client_start() {
         return;
     }
     running = 1;
-    bsize = 0;
+    bpos = 0;
     mtx_init(&mutex, mtx_plain);
     if (thrd_create(&recv_thread, recv_worker, NULL) != thrd_success) {
         perror("thrd_create");
@@ -268,7 +269,7 @@ void client_stop() {
     //     exit(1);
     // }
     // mtx_destroy(&mutex);
-    bsize = 0;
+    bpos = 0;
     // printf("Bytes Sent: %d, Bytes Received: %d\n",
     //     bytes_sent, bytes_received);
 }

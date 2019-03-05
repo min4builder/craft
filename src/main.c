@@ -16,9 +16,10 @@
 #include "tinycthread.h"
 #include "util.h"
 
-#define MAX_CHUNKS 8192
+#define MAX_CHUNKS (MAX_CHUNK_COUNT * 10 / 5) /* divide by the max load factor */
+#define MAX_CHUNK_COUNT 8192
 #define MAX_PLAYERS 128
-#define WORKERS 4
+#define WORKERS (MAX_CHUNK_COUNT / 256)
 #define MAX_TEXT_LENGTH 256
 #define MAX_NAME_LENGTH 32
 #define MAX_PATH_LENGTH 256
@@ -506,9 +507,26 @@ Player *player_crosshair(Player *player) {
     return result;
 }
 
+int chunk_coord_hash(int p_, int q_, int r_) {
+    unsigned int p = ABS(p_), q = ABS(q_), r = ABS(r_);
+    p = ((p >> 16) ^ p) * 0x45d9f3b;
+    p = ((p >> 16) ^ p) * 0x45d9f3b;
+    p = (p >> 16) ^ p;
+    q = ((q >> 16) ^ q) * 0x45d9f3b;
+    q = ((q >> 16) ^ q) * 0x45d9f3b;
+    q = (q >> 16) ^ q;
+    r = ((r >> 16) ^ r) * 0x45d9f3b;
+    r = ((r >> 16) ^ r) * 0x45d9f3b;
+    r = (r >> 16) ^ r;
+    return (p ^ q ^ r) % MAX_CHUNKS;
+}
+
 Chunk *find_chunk(int p, int q, int r) {
-    for (int i = 0; i < g->chunk_count; i++) {
+    if (q < 0) return 0;
+    int index = chunk_coord_hash(p, q, r);
+    for (int i = index; g->chunks[i].q >= 0; i = (i + 1) % MAX_CHUNKS) {
         Chunk *chunk = g->chunks + i;
+        if (chunk->q < 0) continue;
         if (chunk->p == p && chunk->q == q && chunk->r == r) {
             return chunk;
         }
@@ -585,8 +603,9 @@ int chunk_visible(float planes[6][4], int p, int q, int r) {
 
 int highest_block(float x, float z) {
     int max = 0;
-    for (int i = 0; i < g->chunk_count; i++) {
+    for (int i = 0; i < MAX_CHUNKS; i++) {
         Chunk *chunk = g->chunks + i;
+        if (chunk->q < 0) continue;
         if (chunk->p == chunked(x) && chunk->r == chunked(z)) {
             for (int y = chunk->q * CHUNK_SIZE + CHUNK_SIZE; y > chunk->q * CHUNK_SIZE; y--) {
                 if (is_obstacle(chunk_get(chunk, x, y, z))) {
@@ -600,7 +619,7 @@ int highest_block(float x, float z) {
 }
 
 int _hit_test(
-    Chunk *chunk, float max_distance, int previous,
+    float max_distance, int previous,
     float x, float y, float z,
     float vx, float vy, float vz,
     int *hx, int *hy, int *hz)
@@ -614,9 +633,7 @@ int _hit_test(
         int ny = roundf(y);
         int nz = roundf(z);
         if (nx != px || ny != py || nz != pz) {
-            int hw = 0;
-            if (chunked(nx) == chunk->p && chunked(ny) == chunk->q && chunked(nz) == chunk->r)
-                hw = chunk_get(chunk, nx, ny, nz);
+            int hw = get_block(nx, ny, nz);
             if (hw > 0) {
                 if (previous) {
                     *hx = px; *hy = py; *hz = pz;
@@ -639,27 +656,18 @@ int hit_test(
 {
     int result = 0;
     float best = 0;
-    int p = chunked(x);
-    int q = chunked(y);
-    int r = chunked(z);
     float vx, vy, vz;
     get_sight_vector(rx, ry, &vx, &vy, &vz);
-    for (int i = 0; i < g->chunk_count; i++) {
-        Chunk *chunk = g->chunks + i;
-        if (chunk_distance(chunk, p, q, r) > 1) {
-            continue;
-        }
-        int hx, hy, hz;
-        int hw = _hit_test(chunk, 8, previous,
-            x, y, z, vx, vy, vz, &hx, &hy, &hz);
-        if (hw > 0) {
-            float d = sqrtf(
-                powf(hx - x, 2) + powf(hy - y, 2) + powf(hz - z, 2));
-            if (best == 0 || d < best) {
-                best = d;
-                *bx = hx; *by = hy; *bz = hz;
-                result = hw;
-            }
+    int hx, hy, hz;
+    int hw = _hit_test(8, previous,
+        x, y, z, vx, vy, vz, &hx, &hy, &hz);
+    if (hw > 0) {
+        float d = sqrtf(
+            powf(hx - x, 2) + powf(hy - y, 2) + powf(hz - z, 2));
+        if (best == 0 || d < best) {
+            best = d;
+            *bx = hx; *by = hy; *bz = hz;
+            result = hw;
         }
     }
     return result;
@@ -1106,8 +1114,9 @@ void delete_chunks() {
     State *s2 = &(g->players + g->observe1)->state;
     State *s3 = &(g->players + g->observe2)->state;
     State *states[3] = {s1, s2, s3};
-    for (int i = 0; i < count; i++) {
+    for (int i = 0; i < MAX_CHUNKS; i++) {
         Chunk *chunk = g->chunks + i;
+        if (chunk->q < 0) continue;
         int delete = 1;
         for (int j = 0; j < 3; j++) {
             State *s = states[j];
@@ -1122,18 +1131,31 @@ void delete_chunks() {
         if (delete) {
             map_free(&chunk->lights);
             del_buffer(chunk->buffer);
-            Chunk *other = g->chunks + (--count);
-            memcpy(chunk, other, sizeof(Chunk));
+            chunk->q = -1;
+            int index = i;
+            while (g->chunks[index].q >= 0) {
+                Chunk *c = g->chunks + index;
+                int pref = chunk_coord_hash(c->p, c->q, c->r);
+                if (pref <= i) {
+                    memcpy(chunk, c, sizeof(Chunk));
+                    chunk = c;
+                    chunk->q = -1;
+                }
+                index = (index + 1) % MAX_CHUNKS;
+            }
+            count--;
         }
     }
     g->chunk_count = count;
 }
 
 void delete_all_chunks() {
-    for (int i = 0; i < g->chunk_count; i++) {
+    for (int i = 0; i < MAX_CHUNKS; i++) {
         Chunk *chunk = g->chunks + i;
+        if (chunk->q < 0) continue;
         map_free(&chunk->lights);
         del_buffer(chunk->buffer);
+        chunk->q = -1;
     }
     g->chunk_count = 0;
 }
@@ -1162,7 +1184,7 @@ void force_chunks(Player *player) {
     int p = chunked(s->x);
     int q = chunked(s->y);
     int r = chunked(s->z);
-    int rad = 1;
+    int rad = 4;
     for (int dp = -rad; dp <= rad; dp++) {
         for (int dq = -rad; dq <= rad; dq++) {
             for (int dr = -rad; dr <= rad; dr++) {
@@ -1177,8 +1199,11 @@ void force_chunks(Player *player) {
                         gen_chunk_buffer(chunk);
                     }
                 }
-                else if (g->chunk_count < MAX_CHUNKS) {
-                    chunk = g->chunks + g->chunk_count++;
+                else if (g->chunk_count < MAX_CHUNK_COUNT) {
+                    int index = chunk_coord_hash(a, b, c);
+                    while (g->chunks[index].q >= 0) index = (index + 1) % MAX_CHUNKS;
+                    chunk = g->chunks + index;
+                    g->chunk_count++;
                     create_chunk(chunk, a, b, c);
                     gen_chunk_buffer(chunk);
                 }
@@ -1246,8 +1271,11 @@ void ensure_chunks_worker(Player *player, Worker *worker) {
     Chunk *chunk = find_chunk(a, b, c);
     if (!chunk) {
         load = 1;
-        if (g->chunk_count < MAX_CHUNKS) {
-            chunk = g->chunks + g->chunk_count++;
+        if (g->chunk_count < MAX_CHUNK_COUNT) {
+            int index = chunk_coord_hash(a, b, c);
+            while (g->chunks[index].q >= 0) index = (index + 1) % MAX_CHUNKS;
+            chunk = g->chunks + index;
+            g->chunk_count++;
             init_chunk(chunk, a, b, c);
         }
         else {
@@ -1425,8 +1453,9 @@ int render_chunks(Attrib *attrib, Player *player) {
     glUniform1f(attrib->extra3, g->render_radius * CHUNK_SIZE);
     glUniform1i(attrib->extra4, g->ortho);
     glUniform1f(attrib->timer, time_of_day());
-    for (int i = 0; i < g->chunk_count; i++) {
+    for (int i = 0; i < MAX_CHUNKS; i++) {
         Chunk *chunk = g->chunks + i;
+        if (chunk->q < 0) continue;
         if (chunk_distance(chunk, p, q, r) > g->render_radius) {
             continue;
         }
@@ -2093,7 +2122,7 @@ void handle_movement(double dt) {
     if (!g->typing) {
         float m = dt * 1.0;
         g->ortho = glfwGetKey(g->window, CRAFT_KEY_ORTHO) ? 64 : 0;
-        g->fov = glfwGetKey(g->window, CRAFT_KEY_ZOOM) ? 15 : 65;
+        g->fov = glfwGetKey(g->window, CRAFT_KEY_ZOOM) ? 15 : 80;
         if (glfwGetKey(g->window, CRAFT_KEY_FORWARD)) sz--;
         if (glfwGetKey(g->window, CRAFT_KEY_BACKWARD)) sz++;
         if (glfwGetKey(g->window, CRAFT_KEY_LEFT)) sx--;
@@ -2145,7 +2174,7 @@ void handle_movement(double dt) {
     }
 }
 
-void parse_buffer(char *buffer, size_t bsize) {
+void parse_buffer(char *buf, size_t tsize) {
     Player *me = g->players;
     State *s = &g->players->state;
     int pid;
@@ -2154,92 +2183,112 @@ void parse_buffer(char *buffer, size_t bsize) {
     float px, py, pz, prx, pry;
     double elapsed;
     int day_length;
-    if (buffer[0] == 'C') {
+    while (tsize) {
+        size_t bsize = *(size_t *)buf;
+        char *buffer = buf + sizeof(size_t);
+        tsize -= bsize + sizeof(size_t);
+        buf += bsize + sizeof(size_t);
+        if (buffer[0] == 'C') {
 #define B64R(x) (((int64_t)(x)[0] << 56) | ((int64_t)(x)[1] << 48) | ((int64_t)(x)[2] << 40) | ((int64_t)(x)[3] << 32) | ((int64_t)(x)[4] << 24) | ((int64_t)(x)[5] << 16) | ((int64_t)(x)[6] << 8) | ((int64_t)(x)[7] << 0))
-        int64_t p = B64R(buffer+1);
-        int64_t q = B64R(buffer+9);
-        int64_t r = B64R(buffer+17);
+            int64_t p = B64R(buffer+1);
+            int64_t q = B64R(buffer+9);
+            int64_t r = B64R(buffer+17);
 #undef B64R
-        buffer += 25;
-        bsize -= 25;
-        printf("C,%ld,%ld,%ld\n", p, q, r);
-        Chunk *chunk = find_chunk(p, q, r);
-        if (chunk) {
-            size_t len = tinfl_decompress_mem_to_mem(chunk->ws, sizeof(chunk->ws), buffer, bsize, 0);
-            dirty_chunk(chunk);
-            if (chunked(s->x) == p && chunked(s->z) == r) {
-                if (player_intersects_block(2, s->x, s->y, s->z, s->x, s->y, s->z)) {
-                    s->y = highest_block(s->x, s->z) + 2;
+            buffer += 25;
+            bsize -= 26;
+            printf("C,%ld,%ld,%ld\n", p, q, r);
+            Chunk *chunk = find_chunk(p, q, r);
+            if (!chunk) {
+                int index = chunk_coord_hash(p, q, r);
+                if (g->chunk_count < MAX_CHUNK_COUNT) {
+                    while (g->chunks[index].q >= 0) index = (index + 1) % MAX_CHUNKS;
+                    chunk = g->chunks + index;
+                    g->chunk_count++;
+                    init_chunk(chunk, p, q, r);
                 }
             }
+            if (chunk) {
+                size_t len = tinfl_decompress_mem_to_mem(chunk->ws, sizeof(chunk->ws), buffer, bsize, 0);
+                dirty_chunk(chunk);
+                if (chunked(s->x) == p && chunked(s->z) == r) {
+                    if (player_intersects_block(2, s->x, s->y, s->z, s->x, s->y, s->z)) {
+                        s->y = highest_block(s->x, s->z) + 2;
+                    }
+                }
+            } else {
+                printf("Chunk discarded\n");
+            }
+        } else if (sscanf(buffer, "U,%d,%f,%f,%f,%f,%f",
+            &pid, &ux, &uy, &uz, &urx, &ury) == 6)
+        {
+            me->id = pid;
+            s->x = ux; s->y = uy; s->z = uz; s->rx = urx; s->ry = ury;
+            force_chunks(me);
+            if (uy == 0) {
+                s->y = highest_block(s->x, s->z) + 2;
+            }
+        } else if (sscanf(buffer, "B,%d,%d,%d,%d",
+            &bx, &by, &bz, &bw) == 6)
+        {
+            set_block(bx, by, bz, bw);
+            if (player_intersects_block(2, s->x, s->y, s->z, bx, by, bz)) {
+                s->y = highest_block(s->x, s->z) + 2;
+            }
+            Chunk *chunk = find_chunk(chunked(bx), chunked(by), chunked(bz));
+            if (chunk) {
+                dirty_chunk(chunk);
+            }
+        } else if (sscanf(buffer, "L,%d,%d,%d,%d",
+            &bx, &by, &bz, &bw) == 6)
+        {
+            set_light(bx, by, bz, bw);
+            Chunk *chunk = find_chunk(chunked(bx), chunked(by), chunked(bz));
+            if (chunk) {
+                dirty_chunk(chunk);
+            }
+        } else if (sscanf(buffer, "P,%d,%f,%f,%f,%f,%f",
+            &pid, &px, &py, &pz, &prx, &pry) == 6)
+        {
+            Player *player = find_player(pid);
+            if (!player && pid != me->id && g->player_count < MAX_PLAYERS) {
+                player = g->players + g->player_count;
+                g->player_count++;
+                player->id = pid;
+                player->buffer = 0;
+                snprintf(player->name, MAX_NAME_LENGTH, "player%d", pid);
+                update_player(player, px, py, pz, prx, pry, 1); // twice
+            }
+            if (player) {
+                update_player(player, px, py, pz, prx, pry, 1);
+            }
+        } else if (sscanf(buffer, "D,%d", &pid) == 1) {
+            delete_player(pid);
+        } else if (sscanf(buffer, "E,%lf,%d", &elapsed, &day_length) == 2) {
+            glfwSetTime(fmod(elapsed, day_length));
+            g->day_length = day_length;
+            g->time_changed = 1;
+        } else if (buffer[0] == 'T' && buffer[1] == ',') {
+            char *text = buffer + 2;
+            add_message(text);
         }
-    } else if (sscanf(buffer, "U,%d,%f,%f,%f,%f,%f",
-        &pid, &ux, &uy, &uz, &urx, &ury) == 6)
-    {
-        me->id = pid;
-        s->x = ux; s->y = uy; s->z = uz; s->rx = urx; s->ry = ury;
-        force_chunks(me);
-        if (uy == 0) {
-            s->y = highest_block(s->x, s->z) + 2;
-        }
-    } else if (sscanf(buffer, "B,%d,%d,%d,%d",
-        &bx, &by, &bz, &bw) == 6)
-    {
-        set_block(bx, by, bz, bw);
-        if (player_intersects_block(2, s->x, s->y, s->z, bx, by, bz)) {
-            s->y = highest_block(s->x, s->z) + 2;
-        }
-        Chunk *chunk = find_chunk(chunked(bx), chunked(by), chunked(bz));
-        if (chunk) {
-            dirty_chunk(chunk);
-        }
-    } else if (sscanf(buffer, "L,%d,%d,%d,%d",
-        &bx, &by, &bz, &bw) == 6)
-    {
-        set_light(bx, by, bz, bw);
-        Chunk *chunk = find_chunk(chunked(bx), chunked(by), chunked(bz));
-        if (chunk) {
-            dirty_chunk(chunk);
-        }
-    } else if (sscanf(buffer, "P,%d,%f,%f,%f,%f,%f",
-        &pid, &px, &py, &pz, &prx, &pry) == 6)
-    {
-        Player *player = find_player(pid);
-        if (!player && pid != me->id && g->player_count < MAX_PLAYERS) {
-            player = g->players + g->player_count;
-            g->player_count++;
-            player->id = pid;
-            player->buffer = 0;
-            snprintf(player->name, MAX_NAME_LENGTH, "player%d", pid);
-            update_player(player, px, py, pz, prx, pry, 1); // twice
-        }
-        if (player) {
-            update_player(player, px, py, pz, prx, pry, 1);
-        }
-    } else if (sscanf(buffer, "D,%d", &pid) == 1) {
-        delete_player(pid);
-    } else if (sscanf(buffer, "E,%lf,%d", &elapsed, &day_length) == 2) {
-        glfwSetTime(fmod(elapsed, day_length));
-        g->day_length = day_length;
-        g->time_changed = 1;
-    } else if (buffer[0] == 'T' && buffer[1] == ',') {
-        char *text = buffer + 2;
-        add_message(text);
-    }
-    char format[64];
-    snprintf(
-        format, sizeof(format), "N,%%d,%%%ds", MAX_NAME_LENGTH - 1);
-    char name[MAX_NAME_LENGTH];
-    if (sscanf(buffer, format, &pid, name) == 2) {
-        Player *player = find_player(pid);
-        if (player) {
-            strncpy(player->name, name, MAX_NAME_LENGTH);
+        char format[64];
+        snprintf(
+            format, sizeof(format), "N,%%d,%%%ds", MAX_NAME_LENGTH - 1);
+        char name[MAX_NAME_LENGTH];
+        if (sscanf(buffer, format, &pid, name) == 2) {
+            Player *player = find_player(pid);
+            if (player) {
+                strncpy(player->name, name, MAX_NAME_LENGTH);
+            }
         }
     }
 }
 
 void reset_model() {
-    memset(g->chunks, 0, sizeof(Chunk) * MAX_CHUNKS);
+    for (int i = 0; i < MAX_CHUNKS; i++) {
+        memset(g->chunks + i, 0, sizeof(Chunk));
+        g->chunks[i].q = -1;
+    }
     g->chunk_count = 0;
     memset(g->players, 0, sizeof(Player) * MAX_PLAYERS);
     g->player_count = 0;
@@ -2436,10 +2485,10 @@ int main(int argc, char **argv) {
             handle_movement(dt);
 
             // HANDLE DATA FROM SERVER //
-            size_t bsize;
-            char *buffer = client_recv(&bsize);
+            size_t size;
+            char *buffer = client_recv(&size);
             if (buffer) {
-                parse_buffer(buffer, bsize);
+                parse_buffer(buffer, size);
                 free(buffer);
             }
 

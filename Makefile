@@ -9,7 +9,7 @@ DEPS_CFLAGS = `pkg-config --cflags glew glfw3`
 DEPS_LIBS = `pkg-config --libs glew glfw3`
 LIBS := $(DEPS_LIBS) -lpthread -lm
 
-CFLAGS := -Wall -Wextra -pedantic -g -std=c99 -Og $(DEPS_CFLAGS)
+CFLAGS := -Wall -Wextra -pedantic -g -std=c99 -O3 $(DEPS_CFLAGS)
 
 all: craft
 craft: $(OBJECT_FILES)
