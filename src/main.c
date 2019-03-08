@@ -629,9 +629,9 @@ int _hit_test(
     int py = 0;
     int pz = 0;
     for (int i = 0; i < max_distance * m; i++) {
-        int nx = roundf(x);
-        int ny = roundf(y);
-        int nz = roundf(z);
+        int nx = floorf(x);
+        int ny = floorf(y);
+        int nz = floorf(z);
         if (nx != px || ny != py || nz != pz) {
             int hw = get_block(nx, ny, nz);
             if (hw > 0) {
@@ -707,34 +707,34 @@ int hit_test_face(Player *player, int *x, int *y, int *z, int *face) {
 }
 
 int collide(int height, float *x, float *y, float *z) {
+    float pad = 0.25;
     int result = 0;
-    int nx = roundf(*x);
-    int ny = roundf(*y);
-    int nz = roundf(*z);
+    int nx = floorf(*x);
+    int ny = floorf(*y);
+    int nz = floorf(*z);
     float px = *x - nx;
     float py = *y - ny;
     float pz = *z - nz;
-    float pad = 0.25;
     for (int dy = 0; dy < height; dy++) {
-        if (px < -pad && is_obstacle(get_block(nx - 1, ny - dy, nz))) {
-            *x = nx - pad;
-        }
-        if (px > pad && is_obstacle(get_block(nx + 1, ny - dy, nz))) {
+        if (px < pad && is_obstacle(get_block(nx - 1, ny + dy, nz))) {
             *x = nx + pad;
         }
-        if (py < -pad && is_obstacle(get_block(nx, ny - dy - 1, nz))) {
-            *y = ny - pad;
-            result = 1;
+        if (px > 1 - pad && is_obstacle(get_block(nx + 1, ny + dy, nz))) {
+            *x = nx + 1 - pad;
         }
-        if (py > pad && is_obstacle(get_block(nx, ny - dy + 1, nz))) {
+        if (py < pad && is_obstacle(get_block(nx, ny + dy - 1, nz))) {
             *y = ny + pad;
             result = 1;
         }
-        if (pz < -pad && is_obstacle(get_block(nx, ny - dy, nz - 1))) {
-            *z = nz - pad;
+        if (py > 1 - pad && is_obstacle(get_block(nx, ny + dy + 1, nz))) {
+            *y = ny + 1 - pad;
+            result = 1;
         }
-        if (pz > pad && is_obstacle(get_block(nx, ny - dy, nz + 1))) {
+        if (pz < pad && is_obstacle(get_block(nx, ny + dy, nz - 1))) {
             *z = nz + pad;
+        }
+        if (pz > 1 - pad && is_obstacle(get_block(nx, ny + dy, nz + 1))) {
+            *z = nz + 1 - pad;
         }
     }
     return result;
@@ -745,11 +745,11 @@ int player_intersects_block(
     float x, float y, float z,
     int hx, int hy, int hz)
 {
-    int nx = roundf(x);
-    int ny = roundf(y);
-    int nz = roundf(z);
+    int nx = floorf(x);
+    int ny = floorf(y);
+    int nz = floorf(z);
     for (int i = 0; i < height; i++) {
-        if (nx == hx && ny - i == hy && nz == hz) {
+        if (nx == hx && ny + i == hy && nz == hz) {
             return 1;
         }
     }
@@ -945,12 +945,13 @@ void compute_chunk(WorkerItem *item) {
         int x = ex - ox;
         int y = ey - oy;
         int z = ez - oz;
-        int f1 = !opaque[XYZ(x - 1, y, z)];
-        int f2 = !opaque[XYZ(x + 1, y, z)];
-        int f3 = !opaque[XYZ(x, y + 1, z)];
-        int f4 = !opaque[XYZ(x, y - 1, z)] && (ey > 0);
-        int f5 = !opaque[XYZ(x, y, z - 1)];
-        int f6 = !opaque[XYZ(x, y, z + 1)];
+        if (!ew) continue;
+        int f1 = (!opaque[XYZ(x - 1, y, z)] ? 1 : 0);
+        int f2 = (!opaque[XYZ(x + 1, y, z)] ? 1 : 0);
+        int f3 = (!opaque[XYZ(x, y + 1, z)] ? 1 : 0);
+        int f4 = (!opaque[XYZ(x, y - 1, z)] && ey > 0 ? 1 : 0);
+        int f5 = (!opaque[XYZ(x, y, z - 1)] ? 1 : 0);
+        int f6 = (!opaque[XYZ(x, y, z + 1)] ? 1 : 0);
         int total = f1 + f2 + f3 + f4 + f5 + f6;
         if (total == 0) {
             continue;
@@ -968,12 +969,13 @@ void compute_chunk(WorkerItem *item) {
         int x = ex - ox;
         int y = ey - oy;
         int z = ez - oz;
-        int f1 = !opaque[XYZ(x - 1, y, z)];
-        int f2 = !opaque[XYZ(x + 1, y, z)];
-        int f3 = !opaque[XYZ(x, y + 1, z)];
-        int f4 = !opaque[XYZ(x, y - 1, z)] && (ey > 0);
-        int f5 = !opaque[XYZ(x, y, z - 1)];
-        int f6 = !opaque[XYZ(x, y, z + 1)];
+        if (!ew) continue;
+        int f1 = (!opaque[XYZ(x - 1, y, z)] ? 1 : 0);
+        int f2 = (!opaque[XYZ(x + 1, y, z)] ? 1 : 0);
+        int f3 = (!opaque[XYZ(x, y + 1, z)] ? 1 : 0);
+        int f4 = (!opaque[XYZ(x, y - 1, z)] && ey > 0 ? 1 : 0);
+        int f5 = (!opaque[XYZ(x, y, z - 1)] ? 1 : 0);
+        int f6 = (!opaque[XYZ(x, y, z + 1)] ? 1 : 0);
         int total = f1 + f2 + f3 + f4 + f5 + f6;
         if (total == 0) {
             continue;
@@ -1016,13 +1018,13 @@ void compute_chunk(WorkerItem *item) {
             float rotation = abs(ex * 323 + ez * -845) % 360;
             make_plant(
                 data + offset, min_ao, max_light,
-                ex, ey, ez, 0.5, ew, rotation);
+                ex, ey, ez, 1, ew, rotation);
         }
         else {
             make_cube(
                 data + offset, ao, light,
                 f1, f2, f3, f4, f5, f6,
-                ex, ey, ez, 0.5, ew);
+                ex, ey, ez, 1, ew);
         }
         offset += total * 60;
     }
@@ -1096,14 +1098,6 @@ void init_chunk(Chunk *chunk, int p, int q, int r) {
 
 void create_chunk(Chunk *chunk, int p, int q, int r) {
     init_chunk(chunk, p, q, r);
-
-    WorkerItem _item;
-    WorkerItem *item = &_item;
-    item->p = chunk->p;
-    item->q = chunk->q;
-    item->r = chunk->r;
-    item->chunks[1][1][1] = chunk;
-    item->light_maps[1][1][1] = &chunk->lights;
 
     request_chunk(p, q, r);
 }
@@ -1184,7 +1178,7 @@ void force_chunks(Player *player) {
     int p = chunked(s->x);
     int q = chunked(s->y);
     int r = chunked(s->z);
-    int rad = 4;
+    int rad = 2;
     for (int dp = -rad; dp <= rad; dp++) {
         for (int dq = -rad; dq <= rad; dq++) {
             for (int dr = -rad; dr <= rad; dr++) {
@@ -1441,12 +1435,12 @@ int render_chunks(Attrib *attrib, Player *player) {
     float matrix[16];
     set_matrix_3d(
         matrix, g->width, g->height,
-        s->x, s->y, s->z, s->rx, s->ry, g->fov, g->ortho, g->render_radius);
+        s->x, s->y + 1.7, s->z, s->rx, s->ry, g->fov, g->ortho, g->render_radius);
     float planes[6][4];
     frustum_planes(planes, g->render_radius, matrix);
     glUseProgram(attrib->program);
     glUniformMatrix4fv(attrib->matrix, 1, GL_FALSE, matrix);
-    glUniform3f(attrib->camera, s->x, s->y, s->z);
+    glUniform3f(attrib->camera, s->x, s->y + 1.7, s->z);
     glUniform1i(attrib->sampler, 0);
     glUniform1i(attrib->extra1, 2);
     glUniform1f(attrib->extra2, light);
@@ -1474,10 +1468,10 @@ void render_players(Attrib *attrib, Player *player) {
     float matrix[16];
     set_matrix_3d(
         matrix, g->width, g->height,
-        s->x, s->y, s->z, s->rx, s->ry, g->fov, g->ortho, g->render_radius);
+        s->x, s->y + 1.7, s->z, s->rx, s->ry, g->fov, g->ortho, g->render_radius);
     glUseProgram(attrib->program);
     glUniformMatrix4fv(attrib->matrix, 1, GL_FALSE, matrix);
-    glUniform3f(attrib->camera, s->x, s->y, s->z);
+    glUniform3f(attrib->camera, s->x, s->y + 1.7, s->z);
     glUniform1i(attrib->sampler, 0);
     glUniform1f(attrib->timer, time_of_day());
     for (int i = 0; i < g->player_count; i++) {
@@ -1509,15 +1503,15 @@ void render_wireframe(Attrib *attrib, Player *player) {
     float matrix[16];
     set_matrix_3d(
         matrix, g->width, g->height,
-        s->x, s->y, s->z, s->rx, s->ry, g->fov, g->ortho, g->render_radius);
+        s->x, s->y + 1.7, s->z, s->rx, s->ry, g->fov, g->ortho, g->render_radius);
     int hx, hy, hz;
-    int hw = hit_test(0, s->x, s->y, s->z, s->rx, s->ry, &hx, &hy, &hz);
+    int hw = hit_test(0, s->x, s->y + 1.7, s->z, s->rx, s->ry, &hx, &hy, &hz);
     if (is_obstacle(hw)) {
         glUseProgram(attrib->program);
         glLineWidth(1);
         glEnable(GL_COLOR_LOGIC_OP);
         glUniformMatrix4fv(attrib->matrix, 1, GL_FALSE, matrix);
-        GLuint wireframe_buffer = gen_wireframe_buffer(hx, hy, hz, 0.53);
+        GLuint wireframe_buffer = gen_wireframe_buffer(hx - 0.05, hy - 0.05, hz - 0.05, 1.1);
         draw_lines(attrib, wireframe_buffer, 3, 24);
         del_buffer(wireframe_buffer);
         glDisable(GL_COLOR_LOGIC_OP);
@@ -1547,12 +1541,12 @@ void render_item(Attrib *attrib) {
     glUniform1f(attrib->timer, time_of_day());
     int w = items[g->item_index];
     if (is_plant(w)) {
-        GLuint buffer = gen_plant_buffer(0, 0, 0, 0.5, w);
+        GLuint buffer = gen_plant_buffer(0, 0, 0, 1, w);
         draw_plant(attrib, buffer);
         del_buffer(buffer);
     }
     else {
-        GLuint buffer = gen_cube_buffer(0, 0, 0, 0.5, w);
+        GLuint buffer = gen_cube_buffer(0, 0, 0, 1, w);
         draw_cube(attrib, buffer);
         del_buffer(buffer);
     }
@@ -1849,7 +1843,7 @@ void parse_command(const char *buffer, int forward) {
 void on_light() {
     State *s = &g->players->state;
     int hx, hy, hz;
-    int hw = hit_test(0, s->x, s->y, s->z, s->rx, s->ry, &hx, &hy, &hz);
+    int hw = hit_test(0, s->x, s->y + 1.7, s->z, s->rx, s->ry, &hx, &hy, &hz);
     if (hy > 0 && is_destructable(hw)) {
         toggle_light(hx, hy, hz);
     }
@@ -1858,7 +1852,7 @@ void on_light() {
 void on_left_click() {
     State *s = &g->players->state;
     int hx, hy, hz;
-    int hw = hit_test(0, s->x, s->y, s->z, s->rx, s->ry, &hx, &hy, &hz);
+    int hw = hit_test(0, s->x, s->y + 1.7, s->z, s->rx, s->ry, &hx, &hy, &hz);
     if (hy > 0 && is_destructable(hw)) {
         put_block(hx, hy, hz, 0);
         record_block(hx, hy, hz, 0);
@@ -1871,7 +1865,7 @@ void on_left_click() {
 void on_right_click() {
     State *s = &g->players->state;
     int hx, hy, hz;
-    int hw = hit_test(1, s->x, s->y, s->z, s->rx, s->ry, &hx, &hy, &hz);
+    int hw = hit_test(1, s->x, s->y + 1.7, s->z, s->rx, s->ry, &hx, &hy, &hz);
     if (hy > 0 && is_obstacle(hw)) {
         if (!player_intersects_block(2, s->x, s->y, s->z, hx, hy, hz)) {
             put_block(hx, hy, hz, items[g->item_index]);
@@ -1883,7 +1877,7 @@ void on_right_click() {
 void on_middle_click() {
     State *s = &g->players->state;
     int hx, hy, hz;
-    int hw = hit_test(0, s->x, s->y, s->z, s->rx, s->ry, &hx, &hy, &hz);
+    int hw = hit_test(0, s->x, s->y + 1.7, s->z, s->rx, s->ry, &hx, &hy, &hz);
     for (int i = 0; i < item_count; i++) {
         if (items[i] == hw) {
             g->item_index = i;
@@ -2170,7 +2164,7 @@ void handle_movement(double dt) {
         }
     }
     if (s->y < 0) {
-        s->y = highest_block(s->x, s->z) + 2;
+        s->y = highest_block(s->x, s->z);
     }
 }
 
@@ -2212,7 +2206,7 @@ void parse_buffer(char *buf, size_t tsize) {
                 dirty_chunk(chunk);
                 if (chunked(s->x) == p && chunked(s->z) == r) {
                     if (player_intersects_block(2, s->x, s->y, s->z, s->x, s->y, s->z)) {
-                        s->y = highest_block(s->x, s->z) + 2;
+                        s->y = highest_block(s->x, s->z);
                     }
                 }
             } else {
@@ -2225,7 +2219,7 @@ void parse_buffer(char *buf, size_t tsize) {
             s->x = ux; s->y = uy; s->z = uz; s->rx = urx; s->ry = ury;
             force_chunks(me);
             if (uy == 0) {
-                s->y = highest_block(s->x, s->z) + 2;
+                s->y = highest_block(s->x, s->z);
             }
         } else if (sscanf(buffer, "B,%d,%d,%d,%d",
             &bx, &by, &bz, &bw) == 6)

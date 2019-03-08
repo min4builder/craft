@@ -16,7 +16,7 @@ craft: $(OBJECT_FILES)
 	$(CC) -o $@ $(OBJECT_FILES) $(LIBS)
 
 clean:
-	rm -rf build
+	rm -rf build craft
 
 run: craft
 	./craft localhost
