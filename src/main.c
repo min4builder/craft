@@ -782,14 +782,12 @@ int has_lights(Chunk *chunk) {
 
 void dirty_chunk(Chunk *chunk) {
     chunk->dirty = 1;
-    if (has_lights(chunk)) {
-        for (int dp = -1; dp <= 1; dp++) {
-            for (int dq = -1; dq <= 1; dq++) {
-                for (int dr = -1; dr <= 1; dr++) {
-                    Chunk *other = find_chunk(chunk->p + dp, chunk->q + dq, chunk->r + dr);
-                    if (other) {
-                        other->dirty = 1;
-                    }
+    for (int dp = -1; dp <= 1; dp++) {
+        for (int dq = -1; dq <= 1; dq++) {
+            for (int dr = -1; dr <= 1; dr++) {
+                Chunk *other = find_chunk(chunk->p + dp, chunk->q + dq, chunk->r + dr);
+                if (other) {
+                    other->dirty = 1;
                 }
             }
         }
