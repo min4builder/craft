@@ -946,12 +946,22 @@ void compute_chunk(WorkerItem *item) {
         int y = ey - oy;
         int z = ez - oz;
         if (!ew) continue;
-        int f1 = (!opaque[XYZ(x - 1, y, z)] ? 1 : 0);
-        int f2 = (!opaque[XYZ(x + 1, y, z)] ? 1 : 0);
-        int f3 = (!opaque[XYZ(x, y + 1, z)] ? 1 : 0);
-        int f4 = (!opaque[XYZ(x, y - 1, z)] && ey > 0 ? 1 : 0);
-        int f5 = (!opaque[XYZ(x, y, z - 1)] ? 1 : 0);
-        int f6 = (!opaque[XYZ(x, y, z + 1)] ? 1 : 0);
+        int f1, f2, f3, f4, f5, f6;
+        if (is_transparent(ew)) {
+            f1 = chunk_get(chunk, ex - 1, y, z) != ew ? 1 : 0;
+            f2 = chunk_get(chunk, ex + 1, y, z) != ew ? 1 : 0;
+            f3 = chunk_get(chunk, ex, y + 1, z) != ew ? 1 : 0;
+            f4 = chunk_get(chunk, ex, y - 1, z) != ew ? 1 : 0;
+            f5 = chunk_get(chunk, ex, y, z - 1) != ew ? 1 : 0;
+            f6 = chunk_get(chunk, ex, y, z + 1) != ew ? 1 : 0;
+        } else {
+            f1 = (!opaque[XYZ(x - 1, y, z)] ? 1 : 0);
+            f2 = (!opaque[XYZ(x + 1, y, z)] ? 1 : 0);
+            f3 = (!opaque[XYZ(x, y + 1, z)] ? 1 : 0);
+            f4 = (!opaque[XYZ(x, y - 1, z)] && ey > 0 ? 1 : 0);
+            f5 = (!opaque[XYZ(x, y, z - 1)] ? 1 : 0);
+            f6 = (!opaque[XYZ(x, y, z + 1)] ? 1 : 0);
+        }
         int total = f1 + f2 + f3 + f4 + f5 + f6;
         if (total == 0) {
             continue;
@@ -970,12 +980,22 @@ void compute_chunk(WorkerItem *item) {
         int y = ey - oy;
         int z = ez - oz;
         if (!ew) continue;
-        int f1 = (!opaque[XYZ(x - 1, y, z)] ? 1 : 0);
-        int f2 = (!opaque[XYZ(x + 1, y, z)] ? 1 : 0);
-        int f3 = (!opaque[XYZ(x, y + 1, z)] ? 1 : 0);
-        int f4 = (!opaque[XYZ(x, y - 1, z)] && ey > 0 ? 1 : 0);
-        int f5 = (!opaque[XYZ(x, y, z - 1)] ? 1 : 0);
-        int f6 = (!opaque[XYZ(x, y, z + 1)] ? 1 : 0);
+        int f1, f2, f3, f4, f5, f6;
+        if (is_transparent(ew)) {
+            f1 = chunk_get(chunk, ex - 1, y, z) != ew ? 1 : 0;
+            f2 = chunk_get(chunk, ex + 1, y, z) != ew ? 1 : 0;
+            f3 = chunk_get(chunk, ex, y + 1, z) != ew ? 1 : 0;
+            f4 = chunk_get(chunk, ex, y - 1, z) != ew ? 1 : 0;
+            f5 = chunk_get(chunk, ex, y, z - 1) != ew ? 1 : 0;
+            f6 = chunk_get(chunk, ex, y, z + 1) != ew ? 1 : 0;
+        } else {
+            f1 = (!opaque[XYZ(x - 1, y, z)] ? 1 : 0);
+            f2 = (!opaque[XYZ(x + 1, y, z)] ? 1 : 0);
+            f3 = (!opaque[XYZ(x, y + 1, z)] ? 1 : 0);
+            f4 = (!opaque[XYZ(x, y - 1, z)] && ey > 0 ? 1 : 0);
+            f5 = (!opaque[XYZ(x, y, z - 1)] ? 1 : 0);
+            f6 = (!opaque[XYZ(x, y, z + 1)] ? 1 : 0);
+        }
         int total = f1 + f2 + f3 + f4 + f5 + f6;
         if (total == 0) {
             continue;
