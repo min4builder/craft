@@ -37,7 +37,8 @@
     for (int ex = c->p * CHUNK_SIZE; ex < c->p * CHUNK_SIZE + CHUNK_SIZE; ex++) \
         for (int ey = c->q * CHUNK_SIZE; ey < c->q * CHUNK_SIZE + CHUNK_SIZE; ey++) \
             for (int ez = c->r * CHUNK_SIZE; ez < c->r * CHUNK_SIZE + CHUNK_SIZE; ez++) \
-                for (int ew = chunk_get(c, ex, ey, ez); ew != 0; ew = 0) \
+                for (int ew = chunk_get(c, ex, ey, ez); c->q >= 0 && ew != 0; ew = 0)
+                /* the c->q >= 0 check is there to mitigate a race condition; TODO rewrite this whole thing */
 
 typedef struct {
     char ws[CHUNK_SIZE*CHUNK_SIZE*CHUNK_SIZE];
@@ -526,7 +527,6 @@ Chunk *find_chunk(int p, int q, int r) {
     int index = chunk_coord_hash(p, q, r);
     for (int i = index; g->chunks[i].q >= 0; i = (i + 1) % MAX_CHUNKS) {
         Chunk *chunk = g->chunks + i;
-        if (chunk->q < 0) continue;
         if (chunk->p == p && chunk->q == q && chunk->r == r) {
             return chunk;
         }
@@ -946,12 +946,12 @@ void compute_chunk(WorkerItem *item) {
         if (!ew) continue;
         int f1, f2, f3, f4, f5, f6;
         if (is_transparent(ew)) {
-            f1 = chunk_get(chunk, ex - 1, y, z) != ew ? 1 : 0;
-            f2 = chunk_get(chunk, ex + 1, y, z) != ew ? 1 : 0;
-            f3 = chunk_get(chunk, ex, y + 1, z) != ew ? 1 : 0;
-            f4 = chunk_get(chunk, ex, y - 1, z) != ew ? 1 : 0;
-            f5 = chunk_get(chunk, ex, y, z - 1) != ew ? 1 : 0;
-            f6 = chunk_get(chunk, ex, y, z + 1) != ew ? 1 : 0;
+            f1 = chunk_get(chunk, ex - 1, ey, ez) != ew ? 1 : 0;
+            f2 = chunk_get(chunk, ex + 1, ey, ez) != ew ? 1 : 0;
+            f3 = chunk_get(chunk, ex, ey + 1, ez) != ew ? 1 : 0;
+            f4 = chunk_get(chunk, ex, ey - 1, ez) != ew ? 1 : 0;
+            f5 = chunk_get(chunk, ex, ey, ez - 1) != ew ? 1 : 0;
+            f6 = chunk_get(chunk, ex, ey, ez + 1) != ew ? 1 : 0;
         } else {
             f1 = (!opaque[XYZ(x - 1, y, z)] ? 1 : 0);
             f2 = (!opaque[XYZ(x + 1, y, z)] ? 1 : 0);
@@ -970,6 +970,7 @@ void compute_chunk(WorkerItem *item) {
         faces += total;
     }
 
+
     // generate geometry
     GLfloat *data = malloc_faces(10, faces);
     int offset = 0;
@@ -980,12 +981,12 @@ void compute_chunk(WorkerItem *item) {
         if (!ew) continue;
         int f1, f2, f3, f4, f5, f6;
         if (is_transparent(ew)) {
-            f1 = chunk_get(chunk, ex - 1, y, z) != ew ? 1 : 0;
-            f2 = chunk_get(chunk, ex + 1, y, z) != ew ? 1 : 0;
-            f3 = chunk_get(chunk, ex, y + 1, z) != ew ? 1 : 0;
-            f4 = chunk_get(chunk, ex, y - 1, z) != ew ? 1 : 0;
-            f5 = chunk_get(chunk, ex, y, z - 1) != ew ? 1 : 0;
-            f6 = chunk_get(chunk, ex, y, z + 1) != ew ? 1 : 0;
+            f1 = chunk_get(chunk, ex - 1, ey, ez) != ew ? 1 : 0;
+            f2 = chunk_get(chunk, ex + 1, ey, ez) != ew ? 1 : 0;
+            f3 = chunk_get(chunk, ex, ey + 1, ez) != ew ? 1 : 0;
+            f4 = chunk_get(chunk, ex, ey - 1, ez) != ew ? 1 : 0;
+            f5 = chunk_get(chunk, ex, ey, ez - 1) != ew ? 1 : 0;
+            f6 = chunk_get(chunk, ex, ey, ez + 1) != ew ? 1 : 0;
         } else {
             f1 = (!opaque[XYZ(x - 1, y, z)] ? 1 : 0);
             f2 = (!opaque[XYZ(x + 1, y, z)] ? 1 : 0);
@@ -1034,11 +1035,13 @@ void compute_chunk(WorkerItem *item) {
                 }
             }
             float rotation = abs(ex * 323 + ez * -845) % 360;
+            if (offset + total * 60 > faces * 60) continue; /* TODO fix this hack */
             make_plant(
                 data + offset, min_ao, max_light,
                 ex, ey, ez, 1, ew, rotation);
         }
         else {
+            if (offset + total * 60 > faces * 60) continue; /* TODO fix this hack */
             make_cube(
                 data + offset, ao, light,
                 f1, f2, f3, f4, f5, f6,
@@ -1047,6 +1050,7 @@ void compute_chunk(WorkerItem *item) {
         offset += total * 60;
     }
 
+end:
     free(opaque);
     free(light);
     free(highest);
