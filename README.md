@@ -10,9 +10,7 @@ Client based on http://www.michaelfogleman.com/craft/.
 
 * World generation and processing done entirely on the server.
 * More than 10 types of blocks and more can be added easily.
-* Supports plants (grass, flowers, trees, etc.) and transparency (glass).
-* Simple noise clouds in the sky (shader-generated).
-* Day / night cycles and a textured sky dome.
+* Supports full and partial transparency (glass/water).
 * Multiplayer support!
 
 ### Download
@@ -67,9 +65,9 @@ You can connect to an online server with command line arguments...
 
     ./craft craft.michaelfogleman.com
 
-Or, with the "/online" command in the game itself.
+Or, with the "/server" command in the game itself.
 
-    /online craft.michaelfogleman.com
+    /server craft.michaelfogleman.com
 
 ### Controls
 
@@ -83,9 +81,6 @@ Or, with the "/online" command in the game itself.
 - Tab to toggle between walking and flying.
 - ZXCVBN to move in exact directions along the XYZ axes.
 - Left shift to zoom.
-- F to show the scene in orthographic mode.
-- O to observe players in the main view.
-- P to observe players in the picture-in-picture view.
 - T to type text into chat.
 - Forward slash (/) to enter a command.
 - Arrow keys emulate mouse movement.
@@ -93,25 +88,26 @@ Or, with the "/online" command in the game itself.
 
 ### Chat Commands
 
-    /online HOST [PORT]
+    /server HOST [PORT]
 
-Connect to the specified server.
+Switch to the specified server.
+
+    /view CHUNKS
+
+Change the render distance.
 
 ### Implementation Details
 
 #### Rendering
 
-Only exposed faces are rendered. This is an important optimization as the vast
-majority of blocks are either completely hidden or are only exposing one or two
-faces. Each chunk records a one-block width overlap for each neighboring chunk
-so it knows which blocks along its perimeter are exposed.
+The game is fully raytraced.
 
-Only visible chunks are rendered. A naive frustum-culling approach is used to
-test if a chunk is in the camera’s view. If it is not, it is not rendered. This
-results in a pretty decent performance improvement as well.
+The whole world is sent to the GPU as a 3D texture, so you need a lot of video
+memory to run it well. If it runs out of memory, try making the render distance
+smaller.
 
-Chunk buffers are completely regenerated when a block is changed in that chunk,
-instead of trying to update the VBO.
+Every chunk received is written back to the 3D texture as soon as possible. Only
+the modified chunks are sent.
 
 Text is rendered using a bitmap atlas. Each character is rendered onto two
 triangles forming a 2D rectangle.
@@ -120,13 +116,17 @@ triangles forming a 2D rectangle.
 used. Vertex buffer objects are used for position, normal and texture
 coordinates. Vertex and fragment shaders are used for rendering. Matrix
 manipulation functions are in matrix.c for translation, rotation, perspective,
-orthographic, etc. matrices. The 3D models are made up of very simple
-primitives - mostly cubes and rectangles. These models are generated in code in
-cube.c.
+orthographic, etc. matrices.
 
-Transparency in glass blocks and plants (plants don’t take up the full
-rectangular shape of their triangle primitives) is implemented by discarding
-pixels with alpha=0 in the fragment shader.
+Raytracing is implemented by drawing a quad covering the screen and doing raytracing
+on the fragment shader (block_fragment.glsl). This renders the world, textures,
+transparency, refraction and reflection (currently disabled). Rays are traced
+from the camera by using a precise cube-stepping algorithm for the first quarter
+of the render distance and an imprecise method for the rest (that skips a lot of
+blocks and speeds up distant stuff quite a bit). Then the block at that position
+has its texture retrieved and shown.
+
+There is currently no lighting.
 
 #### World
 
@@ -151,11 +151,6 @@ the player’s rotation in two different axes. The client interpolates player
 positions from the past two position updates for smoother animation. The client
 sends its position to the server at most every 0.1 seconds (less if not moving).
 
-In multiplayer mode, players can observe one another in the main view or in a
-picture-in-picture view. Implementation of the PnP was surprisingly simple -
-just change the viewport and render the scene again from the other player’s
-point of view.
-
 #### Collision Testing
 
 Hit testing (what block the user is pointing at) is implemented by scanning a
@@ -165,25 +160,6 @@ not a precise method, so the step rate can be made smaller to be more accurate.
 Collision testing simply adjusts the player’s position to remain a certain
 distance away from any adjacent blocks that are obstacles. (Clouds and plants
 are not marked as obstacles, so you pass right through them.)
-
-#### Sky Dome
-
-A textured sky dome is used for the sky. The X-coordinate of the texture
-represents time of day. The Y-values map from the bottom of the sky sphere to
-the top of the sky sphere. The player is always in the center of the sphere. The
-fragment shaders for the blocks also sample the sky texture to determine the
-appropriate fog color to blend with based on the block’s position relative to
-the backing sky.
-
-The clouds are not a texture; they are generated by some simple fBm noise in the
-sky shaders. There are also some quite complex calculations for making them look
-like a projected plane, but really they are drawn on the sky dome itself.
-
-#### Ambient Occlusion
-
-Ambient occlusion is implemented as described on this page:
-
-http://0fps.wordpress.com/2013/07/03/ambient-occlusion-for-minecraft-like-worlds/
 
 #### Dependencies
 
