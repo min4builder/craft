@@ -13,7 +13,7 @@ const vec4 a_tiny_bit = vec4(0.01);
 const float tex_max = 16.0;
 
 vec3 normal(vec3 pos) {
-    vec3 fpos = fract(pos) - 0.5;
+    vec3 fpos = pos - 0.5;
     if (fpos.x < -abs(fpos.y) && fpos.x < -abs(fpos.z)) {
         return vec3(-1.0, 0.0, 0.0);
     } else if (fpos.y < -abs(fpos.x) && fpos.y < -abs(fpos.z)) {
@@ -29,8 +29,7 @@ vec3 normal(vec3 pos) {
     }
 }
 
-vec4 color_at(float step, vec4 block, vec3 pos) {
-    vec3 normal = normal(pos);
+vec4 color_at(float dist, vec4 block, vec3 pos, vec3 normal) {
     vec2 uv;
     if (normal.x != 0.0) {
         uv = fract(pos.zy);
@@ -41,7 +40,7 @@ vec4 color_at(float step, vec4 block, vec3 pos) {
     }
     vec2 block_tex = vec2(mod(block.a * 255.0 - 1.0, tex_max), floor((block.a * 255.0 - 1.0) / tex_max));
     vec4 color = texture2D(texture, (uv + block_tex) / tex_max);
-    return mix(color, sky_color, step / render_dist);
+    return mix(color, sky_color, dist / render_dist);
 }
 
 vec4 blend(vec4 a, vec4 b) {
@@ -55,35 +54,52 @@ float refr_idx(float b) {
         return 1.2;
 }
 
-vec4 trace(vec3 camera, vec3 ray, float step) {
-    vec3 pos;
-    vec4 color = vec4(0.0);
+vec4 trace(vec3 camera, vec3 ray) {
+    vec3 pos = floor(camera);
+    vec3 delta = abs(1.0 / ray);
+    vec3 step = sign(ray);
+    vec3 next = delta * fract(-step * camera);
     float pblock = 0.0;
-    while (step < render_dist) {
-        if (step < render_dist / 4.0) {
-            pos = camera + step * ray;
-            vec3 dists = fract(pos * sign(-ray)) / abs(ray);
-            float dist = min(min(dists.x, dists.y), dists.z);
-            step += dist + 0.001;
+    vec4 color = vec4(0.0);
+    float dist;
+    while (distance(camera, pos) < render_dist) {
+        if (distance(camera, pos) < render_dist / 4.0) {
+            float m = min(min(next.x, next.y), next.z);
+            if (m == next.x) {
+                next.x += delta.x;
+                pos.x += step.x;
+                dist = (pos.x - camera.x + (1.0 - step.x) / 2.0) / ray.x;
+            } else if (m == next.y) {
+                next.y += delta.y;
+                pos.y += step.y;
+                dist = (pos.y - camera.y + (1.0 - step.y) / 2.0) / ray.y;
+            } else {
+                next.z += delta.z;
+                pos.z += step.z;
+                dist = (pos.z - camera.z + (1.0 - step.z) / 2.0) / ray.z;
+            }
         } else {
-            step += 16.0 * step / render_dist;
+            dist += 8.0;
+            pos = floor(camera + dist * ray);
         }
-        pos = camera + step * ray;
-        vec4 block = texture3D(world, (floor(pos) + a_tiny_bit.xyz) / world_size);
+        vec4 block = texture3D(world, (pos + a_tiny_bit.xyz) / world_size);
+        vec3 exact_pos = camera + dist * ray;
+        vec3 normal = normal(exact_pos - pos);
         if (block.a > 0.0) {
-            color = blend(color_at(step, block, camera + step * ray), color);
-            if (color.a == 1.0)
+            color = blend(color_at(distance(camera, exact_pos), block, exact_pos, normal), color);
+            if (color.a == 1.0) {
+                if (normal.y == 0.0)
+                    color.rgb /= 2.0;
                 return color;
+            }
             if (block.a != pblock) {
-                vec3 normal = normal(pos);
-                if (true) {
-                    ray = refract(ray, normal, refr_idx(pblock) / refr_idx(block.a));
-                    pblock = block.a;
-                } else {
-                    ray = reflect(ray, normal);
-                }
-                ray = normalize(ray);
-                camera = pos - step * ray;
+                ray = normalize(refract(ray, normal, refr_idx(pblock) / refr_idx(block.a)));
+                pblock = block.a;
+                delta = abs(1.0 / ray);
+                step = sign(ray);
+                next = delta * fract(-step * exact_pos);
+                camera = exact_pos - dist * ray;
+                pos = floor(camera + dist * ray);
             }
         }
     }
@@ -91,6 +107,6 @@ vec4 trace(vec3 camera, vec3 ray, float step) {
 }
 
 void main() {
-    gl_FragColor = trace(camera, normalize(ray), 0.0);
+    gl_FragColor = trace(camera, normalize(ray));
 }
 

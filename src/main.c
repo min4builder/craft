@@ -1198,6 +1198,7 @@ static int render_world(Attrib *attrib, Player *player) {
 
     glUniform1i(attrib->extra1, g->render_radius * 2 * CHUNK_SIZE);
     glUniform1i(attrib->extra2, g->render_radius * CHUNK_SIZE);
+    glUniform1f(attrib->extra4, (float) g->width / (float) g->height);
 
     glBindBuffer(GL_ARRAY_BUFFER, buffer);
     glEnableVertexAttribArray(attrib->position);
@@ -1802,6 +1803,7 @@ int main(int argc, char **argv) {
     block_attrib.extra1 = glGetUniformLocation(program, "world_size");
     block_attrib.extra2 = glGetUniformLocation(program, "render_dist");
     block_attrib.extra3 = glGetUniformLocation(program, "texture");
+    block_attrib.extra4 = glGetUniformLocation(program, "aspect_ratio");
 
     program = load_program(
         "shaders/line_vertex.glsl", "shaders/line_fragment.glsl");
