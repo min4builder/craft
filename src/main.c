@@ -49,6 +49,8 @@ typedef struct {
     int dirty;
     int miny;
     int maxy;
+    int faces;
+    GLuint buffer;
 } Chunk;
 
 typedef struct {
@@ -60,7 +62,8 @@ typedef struct {
     Map *light_maps[3][3][3];
     int miny;
     int maxy;
-    char *data;
+    int faces;
+    GLfloat *data;
 } WorkerItem;
 
 typedef struct {
@@ -116,9 +119,8 @@ typedef struct {
     GLFWwindow *window;
     Worker workers[WORKERS];
     Chunk chunks[MAX_CHUNKS];
-    char *world;
     GLuint world_tex;
-    int world_dirty;
+    GLuint chunks_tex;
     int chunk_count;
     int create_radius;
     int render_radius;
@@ -717,7 +719,7 @@ static void compute_chunk(WorkerItem *item) {
                     int y = ey - oy;
                     int z = ez - oz;
                     int w = ew;
-                    opaque[XYZ(x, y, z)] = !is_transparent(w);
+                    opaque[XYZ(x, y, z)] = w;
                     if (opaque[XYZ(x, y, z)]) {
                         highest[XZ(x, z)] = MAX(highest[XZ(x, z)], y);
                     }
@@ -748,13 +750,43 @@ static void compute_chunk(WorkerItem *item) {
 
     Chunk *chunk = item->chunks[1][1][1];
 
-    char *data = malloc(CHUNK_SIZE*CHUNK_SIZE*CHUNK_SIZE);
+    // count exposed faces
+    int faces = 0;
+    CHUNK_FOR_EACH(chunk, ex, ey, ez, ew) {
+        int x = ex - ox;
+        int y = ey - oy;
+        int z = ez - oz;
+        if (!ew) continue;
+        int f1 = !opaque[XYZ(x - 1, y, z)] ? 1 : 0;
+        int f2 = !opaque[XYZ(x + 1, y, z)] ? 1 : 0;
+        int f3 = !opaque[XYZ(x, y + 1, z)] ? 1 : 0;
+        int f4 = !opaque[XYZ(x, y - 1, z)] && ey > 0 ? 1 : 0;
+        int f5 = !opaque[XYZ(x, y, z - 1)] ? 1 : 0;
+        int f6 = !opaque[XYZ(x, y, z + 1)] ? 1 : 0;
+        int total = f1 + f2 + f3 + f4 + f5 + f6;
+        if (total == 0)
+            continue;
+        if (is_plant(ew))
+            total = 4;
+        faces += total;
+    }
+
+    GLfloat *data = malloc_faces(10, faces);
     int offset = 0;
-    memcpy(data, chunk->ws, sizeof(*chunk->ws)*CHUNK_SIZE*CHUNK_SIZE*CHUNK_SIZE);
-/*    CHUNK_FOR_EACH(chunk, ex, ey, ez, ew) {
-        int x = ex - ox + CHUNK_SIZE + 1;
-        int y = ey - oy + CHUNK_SIZE + 1;
-        int z = ez - oz + CHUNK_SIZE + 1;
+    CHUNK_FOR_EACH(chunk, ex, ey, ez, ew) {
+        int x = ex - ox;
+        int y = ey - oy;
+        int z = ez - oz;
+        if (!ew) continue;
+        int f1 = !opaque[XYZ(x - 1, y, z)] ? 1 : 0;
+        int f2 = !opaque[XYZ(x + 1, y, z)] ? 1 : 0;
+        int f3 = !opaque[XYZ(x, y + 1, z)] ? 1 : 0;
+        int f4 = !opaque[XYZ(x, y - 1, z)] && ey > 0 ? 1 : 0;
+        int f5 = !opaque[XYZ(x, y, z - 1)] ? 1 : 0;
+        int f6 = !opaque[XYZ(x, y, z + 1)] ? 1 : 0;
+        int total = f1 + f2 + f3 + f4 + f5 + f6;
+        if (total == 0)
+            continue;
         char neighbors[27] = {0};
         char lights[27] = {0};
         float shades[27] = {0};
@@ -791,11 +823,13 @@ static void compute_chunk(WorkerItem *item) {
                 }
             }
             float rotation = abs(ex * 323 + ez * -845) % 360;
+            if (offset + total * 60 > faces * 60) continue; /* HACK FIXME */
             make_plant(
                 data + offset, min_ao, max_light,
                 ex, ey, ez, 1, ew, rotation);
         }
         else {
+            if (offset + total * 60 > faces * 60) continue; /* HACK FIXME */
             make_cube(
                 data + offset, ao, light,
                 f1, f2, f3, f4, f5, f6,
@@ -803,24 +837,28 @@ static void compute_chunk(WorkerItem *item) {
         }
         offset += total * 60;
     }
-    */
 
     free(opaque);
     free(light);
     free(highest);
 
+    item->faces = faces;
     item->data = data;
 }
 
 static void generate_chunk(Chunk *chunk, WorkerItem *item) {
+    chunk->faces = item->faces;
+    del_buffer(chunk->buffer);
+    chunk->buffer = gen_faces(10, item->faces, item->data);
     int diameter = g->render_radius * 2 * CHUNK_SIZE;
+    glActiveTexture(GL_TEXTURE3);
     glBindTexture(GL_TEXTURE_3D, g->world_tex);
     glTexSubImage3D(GL_TEXTURE_3D, 0,
         mod_euc(item->p * CHUNK_SIZE, diameter),
         mod_euc(item->q * CHUNK_SIZE, diameter),
         mod_euc(item->r * CHUNK_SIZE, diameter),
         CHUNK_SIZE, CHUNK_SIZE, CHUNK_SIZE,
-        GL_ALPHA, GL_UNSIGNED_BYTE, item->data);
+        GL_ALPHA, GL_UNSIGNED_BYTE, chunk->ws);
 }
 
 static void gen_chunk_buffer(Chunk *chunk) {
@@ -888,6 +926,7 @@ static void delete_chunks() {
             continue;
         }
         map_free(&chunk->lights);
+        del_buffer(chunk->buffer);
         chunk->q = -1;
         int index = i;
         while (g->chunks[index].q >= 0) {
@@ -910,6 +949,7 @@ static void delete_all_chunks() {
         Chunk *chunk = g->chunks + i;
         if (chunk->q < 0) continue;
         map_free(&chunk->lights);
+        del_buffer(chunk->buffer);
         chunk->q = -1;
     }
     g->chunk_count = 0;
@@ -1137,7 +1177,7 @@ static void put_block(int x, int y, int z, int w) {
     client_block(x, y, z, w);
 }
 
-static int resize_world(int radius) {
+static void resize_world(int radius) {
     g->create_radius = radius;
     g->delete_radius = radius + 2;
     g->render_radius = radius;
@@ -1156,58 +1196,64 @@ static int resize_world(int radius) {
     Chunk *chunk = find_chunk(chunked(s->x), chunked(s->y), chunked(s->z));
     if (chunk)
         dirty_chunk(chunk);
-    char *empty = calloc(diameter*diameter*diameter, 1);
-    glTexImage3D(GL_TEXTURE_3D, 0, GL_ALPHA8, diameter, diameter, diameter, 0, GL_ALPHA, GL_BYTE, 0);
-    free(empty);
+    glActiveTexture(GL_TEXTURE3);
+    glTexImage3D(GL_TEXTURE_3D, 0, GL_ALPHA8, diameter, diameter, diameter, 0, GL_ALPHA, GL_UNSIGNED_BYTE, 0);
 }
 
 static int render_world(Attrib *attrib, Player *player) {
-    static GLuint buffer = 0;
-    float data[] = {
-        -1, -1, 0,
-        +1, -1, 0,
-        +1, +1, 0,
-
-        -1, -1, 0,
-        +1, +1, 0,
-        -1, +1, 0
-    };
-
-    if (!buffer) {
-        glGenBuffers(1, &buffer);
-        glBindBuffer(GL_ARRAY_BUFFER, buffer);
-        glBufferData(GL_ARRAY_BUFFER, sizeof(data), data, GL_STATIC_DRAW);
-        glBindBuffer(GL_ARRAY_BUFFER, 0);
-    }
-
     State *s = &player->state;
     ensure_chunks(player);
-    Chunk *c = find_chunk(chunked(s->x), chunked(s->y), chunked(s->z));
+    int p = chunked(s->x), q = chunked(s->y), r = chunked(s->z);
+
+    float matrix[16];
+    set_matrix_3d(
+        matrix, g->width, g->height,
+        s->x, s->y + 1.7, s->z, s->rx, s->ry, g->fov, 0, g->render_radius);
+    float planes[6][4];
+    frustum_planes(planes, g->render_radius, matrix);
 
     glUseProgram(attrib->program);
 
-    float matrix[16], b[16];
-    mat_rotate(matrix, cosf(s->rx), 0, sinf(s->rx), -s->ry);
-    mat_rotate(b, 0, 1, 0, s->rx);
-    mat_multiply(matrix, matrix, b);
-    glUniform3f(attrib->camera, s->x, s->y + 1.7, s->z);
     glUniformMatrix4fv(attrib->matrix, 1, GL_FALSE, matrix);
+    glUniform3f(attrib->camera, s->x, s->y + 1.7, s->z);
 
     glUniform1i(attrib->sampler, 3);
     glUniform1i(attrib->extra3, 0);
 
     glUniform1i(attrib->extra1, g->render_radius * 2 * CHUNK_SIZE);
     glUniform1i(attrib->extra2, g->render_radius * CHUNK_SIZE);
-    glUniform1f(attrib->extra4, (float) g->width / (float) g->height);
 
-    glBindBuffer(GL_ARRAY_BUFFER, buffer);
+    glUniform1f(attrib->timer, time_of_day());
+
     glEnableVertexAttribArray(attrib->position);
-    glVertexAttribPointer(attrib->position, 3, GL_FLOAT, GL_FALSE, 0, 0);
+//    glEnableVertexAttribArray(attrib->normal);
+//    glEnableVertexAttribArray(attrib->uv);
 
-    glDrawArrays(GL_TRIANGLES, 0, 6);
+    for (int i = 0; i < MAX_CHUNKS; i++) {
+        Chunk *chunk = g->chunks + i;
+        if (chunk->q < 0) continue;
+        if (chunk_distance(chunk, p, q, r) > g->render_radius)
+            continue;
+        if (!chunk_visible(planes, chunk->p, chunk->q, chunk->r))
+            continue;
 
+        glBindBuffer(GL_ARRAY_BUFFER, chunk->buffer);
+
+        glVertexAttribPointer(attrib->position, 3, GL_FLOAT, GL_FALSE,
+            sizeof(GLfloat) * 10, 0);
+//        glVertexAttribPointer(attrib->normal, 3, GL_FLOAT, GL_FALSE,
+//            sizeof(GLfloat) * 10, (GLvoid *)(sizeof(GLfloat) * 3));
+//        glVertexAttribPointer(attrib->uv, 4, GL_FLOAT, GL_FALSE,
+//            sizeof(GLfloat) * 10, (GLvoid *)(sizeof(GLfloat) * 6));
+
+        glDrawArrays(GL_TRIANGLES, 0, chunk->faces * 6);
+
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+    }
+
+//    glDisableVertexAttribArray(attrib->uv);
+//    glDisableVertexAttribArray(attrib->normal);
     glDisableVertexAttribArray(attrib->position);
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
 
     return 0;
 }
@@ -1754,7 +1800,7 @@ int main(int argc, char **argv) {
     glEnable(GL_CULL_FACE);
     glEnable(GL_DEPTH_TEST);
     glLogicOp(GL_INVERT);
-    glClearColor(0, 0, 0, 1);
+    glClearColor(1, 1, 1, 1);
 
     glEnable(GL_DEBUG_OUTPUT);
     glDebugMessageCallback(ogl_debug_callback, 0);
@@ -1796,6 +1842,8 @@ int main(int argc, char **argv) {
         "shaders/block_vertex.glsl", "shaders/block_fragment.glsl");
     block_attrib.program = program;
     block_attrib.position = glGetAttribLocation(program, "position");
+    block_attrib.normal = glGetAttribLocation(program, "normal");
+    block_attrib.uv = glGetAttribLocation(program, "uv");
     block_attrib.matrix = glGetUniformLocation(program, "matrix");
     block_attrib.sampler = glGetUniformLocation(program, "world");
     block_attrib.camera = glGetUniformLocation(program, "camera");
@@ -1803,7 +1851,6 @@ int main(int argc, char **argv) {
     block_attrib.extra1 = glGetUniformLocation(program, "world_size");
     block_attrib.extra2 = glGetUniformLocation(program, "render_dist");
     block_attrib.extra3 = glGetUniformLocation(program, "texture");
-    block_attrib.extra4 = glGetUniformLocation(program, "aspect_ratio");
 
     program = load_program(
         "shaders/line_vertex.glsl", "shaders/line_fragment.glsl");
@@ -1906,7 +1953,7 @@ int main(int argc, char **argv) {
             delete_chunks();
 
             // RENDER 3-D SCENE //
-            glClear(GL_DEPTH_BUFFER_BIT);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
             render_world(&block_attrib, me);
 
             // RENDER HUD //

@@ -1,14 +1,20 @@
 #version 120
 
 uniform mat4 matrix;
-uniform float aspect_ratio;
+uniform vec3 camera;
 
-attribute vec3 position;
+attribute vec4 position;
+attribute vec3 normal;
+attribute vec4 uv;
 
 varying vec3 ray;
+varying vec3 pos;
+varying vec3 fnormal;
 
 void main() {
-    ray = (matrix * vec4(position.x * aspect_ratio, position.y, -1.0, 0.0)).xyz;
-    gl_Position = vec4(position, 1.0);
+    gl_Position = matrix * position;
+    pos = position.xyz;
+    ray = pos - camera;
+    fnormal = normal;
 }
 
