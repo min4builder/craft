@@ -10,7 +10,6 @@ Client based on http://www.michaelfogleman.com/craft/.
 
 * World generation and processing done entirely on the server.
 * More than 10 types of blocks and more can be added easily.
-* Supports full and partial transparency (glass/water).
 * Multiplayer support!
 
 ### Download
@@ -100,14 +99,17 @@ Change the render distance.
 
 #### Rendering
 
-The game is fully raytraced.
+Only exposed faces are rendered. This is an important optimization as the vast
+majority of blocks are either completely hidden or are only exposing one or two
+faces. Each chunk records a one-block width overlap for each neighborhooding
+chunk so it knows which blocks along its perimeter are exposed.
 
-The whole world is sent to the GPU as a 3D texture, so you need a lot of video
-memory to run it well. If it runs out of memory, try making the render distance
-smaller.
+Only visible chunks are rendered. A naive frustum-culling approach is used to
+test if a chunk is in the camera's view. If not, it's not rendered. This
+results in a pretty decent performance improvement as well.
 
-Every chunk received is written back to the 3D texture as soon as possible. Only
-the modified chunks are sent.
+Chunk buffers are completely regenerated when a block is changed in that chunk,
+instead of trying to update the VBO.
 
 Text is rendered using a bitmap atlas. Each character is rendered onto two
 triangles forming a 2D rectangle.
@@ -116,17 +118,13 @@ triangles forming a 2D rectangle.
 used. Vertex buffer objects are used for position, normal and texture
 coordinates. Vertex and fragment shaders are used for rendering. Matrix
 manipulation functions are in matrix.c for translation, rotation, perspective,
-orthographic, etc. matrices.
+orthographic, etc. matrices. The 3D models are made up of very simple
+primitives - mostly cubes and rectangles. These models are generated in code in
+cube.c.
 
-Raytracing is implemented by drawing a quad covering the screen and doing raytracing
-on the fragment shader (block_fragment.glsl). This renders the world, textures,
-transparency, refraction and reflection (currently disabled). Rays are traced
-from the camera by using a precise cube-stepping algorithm for the first quarter
-of the render distance and an imprecise method for the rest (that skips a lot of
-blocks and speeds up distant stuff quite a bit). Then the block at that position
-has its texture retrieved and shown.
+Basic, yet nice, ambient occlusion is implemented as described on this page:
 
-There is currently no lighting.
+http://0fps.wordpress.com/2013/07/03/ambient-occlusion-for-minecraft-like-worlds
 
 #### World
 
@@ -163,8 +161,8 @@ are not marked as obstacles, so you pass right through them.)
 
 #### Dependencies
 
-* GLEW is used for managing OpenGL extensions across platforms.
-* GLFW is used for cross-platform window management.
-* lodepng is used for loading PNG textures.
-* tinycthread is used for cross-platform threading.
+ * GLEW is used for managing OpenGL extensions across platforms.
+ * GLFW is used for cross-platform window management.
+ * lodepng is used for loading PNG textures.
+ * tinycthread is used for cross-platform threading.
 

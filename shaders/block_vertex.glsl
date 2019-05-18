@@ -7,14 +7,16 @@ attribute vec4 position;
 attribute vec3 normal;
 attribute vec4 uv;
 
-varying vec3 ray;
-varying vec3 pos;
+varying vec2 fuv;
+varying float ao;
+varying float dist;
 varying vec3 fnormal;
 
 void main() {
     gl_Position = matrix * position;
-    pos = position.xyz;
-    ray = pos - camera;
+    ao = uv.z;
+    dist = distance(position.xyz, camera);
+    fuv = uv.xy;
     fnormal = normal;
 }
 

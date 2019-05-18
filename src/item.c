@@ -64,10 +64,10 @@ const int item_count = sizeof(items) / sizeof(int);
 const int blocks[256][6] = {
     // w => (left, right, top, bottom, front, back) tiles
     {0, 0, 0, 0, 0, 0}, // 0 - empty
-    {16, 16, 32, 0, 16, 16}, // 1 - grass
-    {1, 1, 1, 1, 1, 1}, // 2 - sand
-    {2, 2, 2, 2, 2, 2}, // 3 - stone
-    {3, 3, 3, 3, 3, 3}, // 4 - brick
+    {1, 1, 1, 1, 1, 1}, // 1 - grass
+    {2, 2, 2, 2, 2, 2}, // 2 - sand
+    {3, 3, 3, 3, 3, 3}, // 3 - stone
+    {4, 4, 4, 4, 4, 4}, // 4 - brick
     {20, 20, 36, 4, 20, 20}, // 5 - wood
     {5, 5, 5, 5, 5, 5}, // 6 - cement
     {6, 6, 6, 6, 6, 6}, // 7 - dirt

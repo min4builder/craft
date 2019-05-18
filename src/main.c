@@ -119,8 +119,6 @@ typedef struct {
     GLFWwindow *window;
     Worker workers[WORKERS];
     Chunk chunks[MAX_CHUNKS];
-    GLuint world_tex;
-    GLuint chunks_tex;
     int chunk_count;
     int create_radius;
     int render_radius;
@@ -851,14 +849,6 @@ static void generate_chunk(Chunk *chunk, WorkerItem *item) {
     del_buffer(chunk->buffer);
     chunk->buffer = gen_faces(10, item->faces, item->data);
     int diameter = g->render_radius * 2 * CHUNK_SIZE;
-    glActiveTexture(GL_TEXTURE3);
-    glBindTexture(GL_TEXTURE_3D, g->world_tex);
-    glTexSubImage3D(GL_TEXTURE_3D, 0,
-        mod_euc(item->p * CHUNK_SIZE, diameter),
-        mod_euc(item->q * CHUNK_SIZE, diameter),
-        mod_euc(item->r * CHUNK_SIZE, diameter),
-        CHUNK_SIZE, CHUNK_SIZE, CHUNK_SIZE,
-        GL_ALPHA, GL_UNSIGNED_BYTE, chunk->ws);
 }
 
 static void gen_chunk_buffer(Chunk *chunk) {
@@ -890,10 +880,6 @@ static void gen_chunk_buffer(Chunk *chunk) {
     chunk->dirty = 0;
 }
 
-static void request_chunk(int p, int q, int r) {
-    client_chunk(p, q, r);
-}
-
 static void init_chunk(Chunk *chunk, int p, int q, int r) {
     chunk->p = p;
     chunk->q = q;
@@ -905,12 +891,6 @@ static void init_chunk(Chunk *chunk, int p, int q, int r) {
     int dz = r * CHUNK_SIZE - 1;
     memset(chunk->ws, 0, sizeof(chunk->ws));
     map_alloc(light_map, dx, dy, dz, 0xf);
-}
-
-static void create_chunk(Chunk *chunk, int p, int q, int r) {
-    init_chunk(chunk, p, q, r);
-
-    request_chunk(p, q, r);
 }
 
 static void delete_chunks() {
@@ -964,7 +944,7 @@ static void check_workers() {
             Chunk *chunk = find_chunk(item->p, item->q, item->r);
             if (chunk) {
                 if (item->load) {
-                    request_chunk(item->p, item->q, item->r);
+                    client_chunk(item->p, item->q, item->r);
                 }
                 generate_chunk(chunk, item);
             }
@@ -999,7 +979,8 @@ static void force_chunks(Player *player) {
                     while (g->chunks[index].q >= 0) index = (index + 1) % MAX_CHUNKS;
                     chunk = g->chunks + index;
                     g->chunk_count++;
-                    create_chunk(chunk, a, b, c);
+                    init_chunk(chunk, a, b, c);
+                    client_chunk(a, b, c);
                     gen_chunk_buffer(chunk);
                 }
             }
@@ -1044,7 +1025,7 @@ static void ensure_chunks_worker(Player *player, Worker *worker) {
                 int invisible = !chunk_visible(planes, a, b, c);
                 int priority = 0;
                 if (chunk) {
-                    priority = chunk->dirty;
+                    priority = chunk->buffer && chunk->dirty ? 1 : 0;
                 }
                 int score = (invisible << 24) | (priority << 16) | distance;
                 if (score < best_score) {
@@ -1179,28 +1160,12 @@ static void put_block(int x, int y, int z, int w) {
 
 static void resize_world(int radius) {
     g->create_radius = radius;
-    g->delete_radius = radius + 2;
+    g->delete_radius = radius + 4;
     g->render_radius = radius;
-    if (!g->world_tex) {
-        glGenTextures(1, &g->world_tex);
-        glActiveTexture(GL_TEXTURE3);
-        glBindTexture(GL_TEXTURE_3D, g->world_tex);
-        glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-        glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-        glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_REPEAT);
-    }
-    int diameter = g->render_radius * 2 * CHUNK_SIZE;
-    State *s = &g->players[0].state;
-    Chunk *chunk = find_chunk(chunked(s->x), chunked(s->y), chunked(s->z));
-    if (chunk)
-        dirty_chunk(chunk);
-    glActiveTexture(GL_TEXTURE3);
-    glTexImage3D(GL_TEXTURE_3D, 0, GL_ALPHA8, diameter, diameter, diameter, 0, GL_ALPHA, GL_UNSIGNED_BYTE, 0);
 }
 
 static int render_world(Attrib *attrib, Player *player) {
+    int face_count = 0;
     State *s = &player->state;
     ensure_chunks(player);
     int p = chunked(s->x), q = chunked(s->y), r = chunked(s->z);
@@ -1217,17 +1182,14 @@ static int render_world(Attrib *attrib, Player *player) {
     glUniformMatrix4fv(attrib->matrix, 1, GL_FALSE, matrix);
     glUniform3f(attrib->camera, s->x, s->y + 1.7, s->z);
 
-    glUniform1i(attrib->sampler, 3);
-    glUniform1i(attrib->extra3, 0);
-
-    glUniform1i(attrib->extra1, g->render_radius * 2 * CHUNK_SIZE);
-    glUniform1i(attrib->extra2, g->render_radius * CHUNK_SIZE);
+    glUniform1i(attrib->sampler, 0);
 
     glUniform1f(attrib->timer, time_of_day());
+    glUniform1i(attrib->extra1, g->render_radius * CHUNK_SIZE);
 
     glEnableVertexAttribArray(attrib->position);
-//    glEnableVertexAttribArray(attrib->normal);
-//    glEnableVertexAttribArray(attrib->uv);
+    glEnableVertexAttribArray(attrib->normal);
+    glEnableVertexAttribArray(attrib->uv);
 
     for (int i = 0; i < MAX_CHUNKS; i++) {
         Chunk *chunk = g->chunks + i;
@@ -1241,21 +1203,23 @@ static int render_world(Attrib *attrib, Player *player) {
 
         glVertexAttribPointer(attrib->position, 3, GL_FLOAT, GL_FALSE,
             sizeof(GLfloat) * 10, 0);
-//        glVertexAttribPointer(attrib->normal, 3, GL_FLOAT, GL_FALSE,
-//            sizeof(GLfloat) * 10, (GLvoid *)(sizeof(GLfloat) * 3));
-//        glVertexAttribPointer(attrib->uv, 4, GL_FLOAT, GL_FALSE,
-//            sizeof(GLfloat) * 10, (GLvoid *)(sizeof(GLfloat) * 6));
+        glVertexAttribPointer(attrib->normal, 3, GL_FLOAT, GL_FALSE,
+            sizeof(GLfloat) * 10, (GLvoid *)(sizeof(GLfloat) * 3));
+        glVertexAttribPointer(attrib->uv, 4, GL_FLOAT, GL_FALSE,
+            sizeof(GLfloat) * 10, (GLvoid *)(sizeof(GLfloat) * 6));
 
         glDrawArrays(GL_TRIANGLES, 0, chunk->faces * 6);
 
         glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+        face_count += chunk->faces;
     }
 
-//    glDisableVertexAttribArray(attrib->uv);
-//    glDisableVertexAttribArray(attrib->normal);
+    glDisableVertexAttribArray(attrib->uv);
+    glDisableVertexAttribArray(attrib->normal);
     glDisableVertexAttribArray(attrib->position);
 
-    return 0;
+    return face_count;
 }
 
 static void render_crosshairs(Attrib *attrib) {
@@ -1796,11 +1760,10 @@ int main(int argc, char **argv) {
         return -1;
     }
 
-    glEnable(GL_TEXTURE_3D);
     glEnable(GL_CULL_FACE);
     glEnable(GL_DEPTH_TEST);
     glLogicOp(GL_INVERT);
-    glClearColor(1, 1, 1, 1);
+    glClearColor(0, 0, 0, 1);
 
     glEnable(GL_DEBUG_OUTPUT);
     glDebugMessageCallback(ogl_debug_callback, 0);
@@ -1845,12 +1808,10 @@ int main(int argc, char **argv) {
     block_attrib.normal = glGetAttribLocation(program, "normal");
     block_attrib.uv = glGetAttribLocation(program, "uv");
     block_attrib.matrix = glGetUniformLocation(program, "matrix");
-    block_attrib.sampler = glGetUniformLocation(program, "world");
+    block_attrib.sampler = glGetUniformLocation(program, "texture");
     block_attrib.camera = glGetUniformLocation(program, "camera");
     block_attrib.timer = glGetUniformLocation(program, "timer");
-    block_attrib.extra1 = glGetUniformLocation(program, "world_size");
-    block_attrib.extra2 = glGetUniformLocation(program, "render_dist");
-    block_attrib.extra3 = glGetUniformLocation(program, "texture");
+    block_attrib.extra1 = glGetUniformLocation(program, "render_dist");
 
     program = load_program(
         "shaders/line_vertex.glsl", "shaders/line_fragment.glsl");
@@ -1954,7 +1915,7 @@ int main(int argc, char **argv) {
 
             // RENDER 3-D SCENE //
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-            render_world(&block_attrib, me);
+            int face_count = render_world(&block_attrib, me);
 
             // RENDER HUD //
             glClear(GL_DEPTH_BUFFER_BIT);
@@ -1974,9 +1935,9 @@ int main(int argc, char **argv) {
                 hour = !hour && am_pm == 'p' ? 12 : hour;
                 snprintf(
                     text_buffer, 1024,
-                    "(%d, %d, %d) (%.2f, %.2f, %.2f) [%d, %d] %d%cm %dfps",
+                    "(%d, %d, %d) (%.2f, %.2f, %.2f) [%d, %d, %d] %d%cm %dfps",
                     chunked(s->x), chunked(s->y), chunked(s->z), s->x, s->y, s->z,
-                    g->player_count, g->chunk_count,
+                    g->player_count, g->chunk_count, face_count,
                     hour, am_pm, fps.fps);
                 render_text(&text_attrib, ALIGN_LEFT, tx, ty, ts, text_buffer);
                 ty -= ts * 2;
