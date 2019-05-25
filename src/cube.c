@@ -8,7 +8,7 @@ void make_cube_faces(
     float *data, float ao[6][4], float light[6][4],
     int left, int right, int top, int bottom, int front, int back,
     int wleft, int wright, int wtop, int wbottom, int wfront, int wback,
-    float x, float y, float z, float n)
+    float x, float y, float z, float n, int displaceable)
 {
     static const float positions[6][4][3] = {
         {{0, 0, 0}, {0, 0, 1}, {0, 1, 0}, {0, 1, 1}},
@@ -50,6 +50,22 @@ void make_cube_faces(
         {0, 1, 2, 1, 3, 2},
         {0, 2, 1, 2, 3, 1}
     };
+    static const int next[6][4] = {
+        {4, 5, 4, 5},
+        {4, 5, 4, 5},
+        {4, 5, 4, 5},
+        {4, 5, 4, 5},
+        {0, 0, 1, 1},
+        {0, 0, 1, 1}
+    };
+    static const int prev[6][4] = {
+        {3, 3, 2, 2},
+        {3, 3, 2, 2},
+        {0, 0, 1, 1},
+        {0, 0, 1, 1},
+        {3, 2, 3, 2},
+        {3, 2, 3, 2}
+    };
     float *d = data;
     float s = 0.0625;
     float a = 0 + 1 / 2048.0;
@@ -65,9 +81,12 @@ void make_cube_faces(
         int flip = ao[i][0] + ao[i][3] > ao[i][1] + ao[i][2];
         for (int v = 0; v < 6; v++) {
             int j = flip ? flipped[i][v] : indices[i][v];
-            *(d++) = x + n * positions[i][j][0];
-            *(d++) = y + n * positions[i][j][1];
-            *(d++) = z + n * positions[i][j][2];
+            float disp = displaceable && faces[prev[i][j]] && faces[next[i][j]] ? 0.15 : 0;
+#define displace(c) ((c) == 0 ? disp : (c) - disp)
+            *(d++) = x + n * displace(positions[i][j][0]);
+            *(d++) = y + n * displace(positions[i][j][1]);
+            *(d++) = z + n * displace(positions[i][j][2]);
+#undef displace
             *(d++) = normals[i][0];
             *(d++) = normals[i][1];
             *(d++) = normals[i][2];
@@ -94,7 +113,7 @@ void make_cube(
         data, ao, light,
         left, right, top, bottom, front, back,
         wleft, wright, wtop, wbottom, wfront, wback,
-        x, y, z, n);
+        x, y, z, n, blocks[w][6]);
 }
 
 void make_plant(
@@ -174,7 +193,7 @@ void make_player(
         data, ao, light,
         1, 1, 1, 1, 1, 1,
         226, 224, 241, 209, 225, 227,
-        0, 0, 0, 0.4);
+        0, 0, 0, 0.4, 0);
     float ma[16];
     float mb[16];
     mat_identity(ma);

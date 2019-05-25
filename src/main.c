@@ -1762,6 +1762,7 @@ int main(int argc, char **argv) {
 
     glEnable(GL_CULL_FACE);
     glEnable(GL_DEPTH_TEST);
+    glEnable(GL_FRAMEBUFFER_SRGB);
     glLogicOp(GL_INVERT);
     glClearColor(0, 0, 0, 1);
 

@@ -111,6 +111,9 @@ results in a pretty decent performance improvement as well.
 Chunk buffers are completely regenerated when a block is changed in that chunk,
 instead of trying to update the VBO.
 
+Some blocks use a very naive "rounding" algorithm, which just displaces
+"inwards" vertices with no blocks touching them.
+
 Text is rendered using a bitmap atlas. Each character is rendered onto two
 triangles forming a 2D rectangle.
 
@@ -125,6 +128,9 @@ cube.c.
 Basic, yet nice, ambient occlusion is implemented as described on this page:
 
 http://0fps.wordpress.com/2013/07/03/ambient-occlusion-for-minecraft-like-worlds
+
+An "animated"-type shading is done on the fragment shader, by using a form of
+dithering with a diagonal pattern.
 
 #### World
 
