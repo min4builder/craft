@@ -2,7 +2,7 @@
 
 Minecraft clone for Linux and Mac OS X. Just a few thousand lines of C using
 modern OpenGL (shaders). The server does all world processing; you need a
-server to play singleplayer.
+[server] to play singleplayer.
 
 Client based on http://www.michaelfogleman.com/craft/.
 
@@ -20,7 +20,7 @@ See below to run from source.
 
 #### Mac OS X
 
-Notice that this should work, but it is untested.
+This should work, but is untested.
 
 Download and install [GLFW](http://www.glfw.org) and
 [GLEW](http://glew.sourceforge.net) if you don't already have them. You may use
@@ -49,24 +49,14 @@ build as a pseudo-Unix target, but that is untested.
 Once you have the dependencies (see above), run the following commands in your
 terminal.
 
-    git clone https://github.com/Min4Builder/Craft
-    cd Craft
+    git clone https://github.com/Min4Builder/craft
+    cd craft
     make
 
 Notice that you need the server, even when playing singleplayer. Once that's
 running, run:
 
     make run
-
-#### Online servers
-
-You can connect to an online server with command line arguments...
-
-    ./craft craft.michaelfogleman.com
-
-Or, with the "/server" command in the game itself.
-
-    /server craft.michaelfogleman.com
 
 ### Controls
 
@@ -171,4 +161,6 @@ are not marked as obstacles, so you pass right through them.)
  * GLFW is used for cross-platform window management.
  * lodepng is used for loading PNG textures.
  * tinycthread is used for cross-platform threading.
+
+[server]: https://github.com/Min4Builder/craft-server
 
